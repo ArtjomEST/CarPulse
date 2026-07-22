@@ -312,14 +312,6 @@ export function CarPulseApp() {
           })}
         </nav>
 
-        <div className="sidebar-status">
-          <div className="status-title">
-            <span className="status-dot" />
-            Мониторинг работает
-          </div>
-          <p>{radars.filter((radar) => radar.enabled).length} радара проверяются каждые 5 минут</p>
-        </div>
-
         <div className="sidebar-profile">
           <span className="avatar">АК</span>
           <span className="profile-copy">
