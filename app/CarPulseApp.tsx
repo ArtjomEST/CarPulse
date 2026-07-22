@@ -22,7 +22,6 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
-  Sparkles,
   X,
 } from "lucide-react";
 import Image from "next/image";
@@ -448,23 +447,6 @@ function Overview({
 }) {
   return (
     <>
-      <section className="summary-strip" aria-label="Сводка">
-        <div className="summary-item summary-primary">
-          <span className="summary-icon"><Sparkles size={20} /></span>
-          <span><strong>12</strong><small>новых сегодня</small></span>
-        </div>
-        <div className="summary-item">
-          <span><strong>{radars.filter((radar) => radar.enabled).length}</strong><small>активных радара</small></span>
-        </div>
-        <div className="summary-item">
-          <span><strong>4</strong><small>площадки онлайн</small></span>
-        </div>
-        <div className="summary-item summary-time">
-          <Clock3 size={18} />
-          <span><strong>1 минуту назад</strong><small>последняя проверка</small></span>
-        </div>
-      </section>
-
       <div className="dashboard-grid">
         <section className="feed-panel">
           <div className="section-heading">

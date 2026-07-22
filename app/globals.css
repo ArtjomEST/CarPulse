@@ -116,16 +116,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .icon-button { display: inline-grid; width: 42px; height: 42px; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); cursor: pointer; }
 .sidebar .icon-button { border-color: #454745; background: transparent; color: white; }
 
-.summary-strip { display: grid; grid-template-columns: 1fr 1fr 1fr 1.4fr; min-height: 88px; margin-bottom: 22px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); }
-.summary-item { display: flex; align-items: center; gap: 12px; padding: 18px 24px; border-right: 1px solid var(--line); }
-.summary-item:last-child { border-right: 0; }
-.summary-item > span:not(.summary-icon) { display: flex; flex-direction: column; }
-.summary-item strong { font-size: 22px; line-height: 1.05; }
-.summary-item small { margin-top: 5px; color: var(--muted); font-size: 13px; }
-.summary-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 7px; background: var(--red-soft); color: var(--red); }
-.summary-time { color: #555957; }
-.summary-time strong { font-size: 15px; color: var(--ink); }
-
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1fr) 322px; gap: 22px; align-items: start; }
 .feed-panel, .full-panel { border: 1px solid var(--line); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); }
 .feed-panel { padding: 22px; }
@@ -309,8 +299,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .dashboard-grid { grid-template-columns: minmax(0, 1fr) 286px; }
   .listing-card { grid-template-columns: 165px minmax(0, 1fr); }
   .listing-footer > div:first-child span:last-child { display: none; }
-  .summary-strip { grid-template-columns: 1fr 1fr 1fr; }
-  .summary-time { display: none; }
 }
 
 @media (max-width: 980px) {
@@ -347,11 +335,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .page-heading h1 { font-size: 29px; }
   .heading-actions { display: grid; grid-template-columns: 1fr; }
   .telegram-button, .primary-button { width: 100%; }
-  .summary-strip { grid-template-columns: 1fr 1fr; }
-  .summary-item { padding: 15px; }
-  .summary-primary { grid-column: 1 / -1; border-bottom: 1px solid var(--line); }
-  .summary-item:nth-child(2) { border-bottom: 0; }
-  .summary-item:nth-child(3) { border-right: 0; }
   .feed-panel, .full-panel { padding: 14px; }
   .section-heading { align-items: stretch; flex-direction: column; }
   .source-select { width: 100%; }
