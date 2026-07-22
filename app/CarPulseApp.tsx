@@ -339,28 +339,29 @@ export function CarPulseApp() {
           </button>
         </header>
 
-        <div className="content-inner">
-          <div className="page-heading">
-            <div>
-              <p className="eyebrow">Среда, 22 июля</p>
-              <h1>{copy.title}</h1>
-              <p>{copy.description}</p>
+        <div className={`content-inner ${view === "overview" ? "overview-content" : ""}`}>
+          {view !== "overview" && (
+            <div className="page-heading">
+              <div>
+                <h1>{copy.title}</h1>
+                <p>{copy.description}</p>
+              </div>
+              <div className="heading-actions">
+                <button
+                  className={`telegram-button ${telegramConnected ? "connected" : ""}`}
+                  type="button"
+                  onClick={() => setView("settings")}
+                >
+                  {telegramConnected ? <Check size={19} /> : <MessageCircle size={19} />}
+                  {telegramConnected ? "Telegram подключён" : "Подключить Telegram"}
+                </button>
+                <button className="primary-button" type="button" onClick={() => setModalOpen(true)}>
+                  <Plus size={19} />
+                  Создать радар
+                </button>
+              </div>
             </div>
-            <div className="heading-actions">
-              <button
-                className={`telegram-button ${telegramConnected ? "connected" : ""}`}
-                type="button"
-                onClick={() => setView("settings")}
-              >
-                {telegramConnected ? <Check size={19} /> : <MessageCircle size={19} />}
-                {telegramConnected ? "Telegram подключён" : "Подключить Telegram"}
-              </button>
-              <button className="primary-button" type="button" onClick={() => setModalOpen(true)}>
-                <Plus size={19} />
-                Создать радар
-              </button>
-            </div>
-          </div>
+          )}
 
           {view === "overview" && (
             <Overview
@@ -443,8 +444,7 @@ function Overview({
         <section className="feed-panel">
           <div className="section-heading">
             <div>
-              <h2>Последние совпадения</h2>
-              <p>Сначала показываем самые свежие объявления.</p>
+              <h2>Автомобили с ваших радаров</h2>
             </div>
             <SourceSelect value={sourceFilter} onChange={setSourceFilter} />
           </div>

@@ -88,6 +88,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 .main-content { min-height: 100vh; margin-left: 248px; }
 .content-inner { width: min(1440px, 100%); margin: 0 auto; padding: 36px 42px 60px; }
+.content-inner.overview-content { padding-top: 22px; }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
 .eyebrow { margin: 0 0 5px !important; color: var(--red) !important; font-size: 12px !important; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .page-heading h1 { margin: 0; font-size: clamp(30px, 3vw, 38px); line-height: 1.1; letter-spacing: -0.8px; }
@@ -328,6 +329,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 640px) {
   body { font-size: 15px; }
   .content-inner { padding: 22px 14px 38px; }
+  .content-inner.overview-content { padding-top: 14px; }
   .page-heading { margin-bottom: 20px; }
   .page-heading h1 { font-size: 29px; }
   .heading-actions { display: grid; grid-template-columns: 1fr; }
