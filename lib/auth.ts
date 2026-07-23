@@ -3,6 +3,7 @@ import { ensureSchema } from "../db/ensure-schema";
 export const SESSION_COOKIE = "__Host-carpulse_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 export const PASSWORD_ITERATIONS = 600_000;
+const PBKDF2_OPERATION_LIMIT = 100_000;
 
 const PASSWORD_MIN_LENGTH = 10;
 const PASSWORD_MAX_LENGTH = 128;
@@ -448,26 +449,51 @@ async function derivePassword(
   salt: Uint8Array,
   iterations: number,
 ) {
-  const passwordSalt = new Uint8Array(salt.byteLength);
-  passwordSalt.set(salt);
-  const material = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt: passwordSalt,
-      iterations,
-    },
-    material,
-    256,
-  );
-  return new Uint8Array(bits);
+  let input = new TextEncoder().encode(password);
+  let remaining = iterations;
+  let round = 0;
+
+  while (remaining > 0) {
+    const roundIterations = Math.min(remaining, PBKDF2_OPERATION_LIMIT);
+    const material = await crypto.subtle.importKey(
+      "raw",
+      input,
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    );
+    const bits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        hash: "SHA-256",
+        salt: passwordSaltForRound(salt, round),
+        iterations: roundIterations,
+      },
+      material,
+      256,
+    );
+    input = new Uint8Array(bits);
+    remaining -= roundIterations;
+    round += 1;
+  }
+
+  return input;
+}
+
+function passwordSaltForRound(salt: Uint8Array, round: number) {
+  if (round === 0) {
+    const firstRoundSalt = new Uint8Array(salt.byteLength);
+    firstRoundSalt.set(salt);
+    return firstRoundSalt;
+  }
+
+  const roundSalt = new Uint8Array(salt.byteLength + 4);
+  roundSalt.set(salt);
+  roundSalt[salt.byteLength] = (round >>> 24) & 0xff;
+  roundSalt[salt.byteLength + 1] = (round >>> 16) & 0xff;
+  roundSalt[salt.byteLength + 2] = (round >>> 8) & 0xff;
+  roundSalt[salt.byteLength + 3] = round & 0xff;
+  return roundSalt;
 }
 
 async function consumeDummyPasswordWork(password: string) {

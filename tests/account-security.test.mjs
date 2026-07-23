@@ -14,6 +14,9 @@ test("account authentication stores slow password hashes and protected sessions"
 
   assert.match(auth, /PBKDF2/);
   assert.match(auth, /PASSWORD_ITERATIONS = 600_000/);
+  assert.match(auth, /PBKDF2_OPERATION_LIMIT = 100_000/);
+  assert.match(auth, /while \(remaining > 0\)/);
+  assert.match(auth, /passwordSaltForRound/);
   assert.match(auth, /HttpOnly/);
   assert.match(auth, /Secure/);
   assert.match(auth, /SameSite=Lax/);

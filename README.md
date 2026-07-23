@@ -179,7 +179,8 @@ npm run dev
 
 - регистрация по имени, email и паролю;
 - login/logout и смена собственного пароля;
-- password hash: PBKDF2-HMAC-SHA256, индивидуальная salt, 600 000 итераций;
+- password hash: PBKDF2-HMAC-SHA256, индивидуальная salt, суммарно 600 000
+  итераций в шести последовательных runtime-совместимых раундах по 100 000;
 - случайный session token хранится в браузере как `Secure`, `HttpOnly`,
   `SameSite=Lax` cookie, а в D1 — только его SHA-256 hash;
 - ограничение неудачных входов: 5 попыток за 15 минут для пары IP + email;
