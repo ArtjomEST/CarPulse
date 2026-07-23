@@ -363,6 +363,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .telegram-toggle small { color: var(--muted); }
 .telegram-toggle input { width: 18px; height: 18px; accent-color: var(--red); }
 .modal-footer { display: flex; justify-content: flex-end; gap: 9px; padding: 16px 24px; border-top: 1px solid var(--line); background: var(--surface-soft); }
+.modal-footer button[hidden] { display: none; }
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 120; display: flex; min-height: 50px; align-items: center; gap: 9px; padding: 0 16px; border: 1px solid #b8d7c5; border-radius: 8px; background: #f3fbf6; color: #235c3d; box-shadow: 0 8px 22px rgba(27,50,37,.16); font-weight: 700; }
 
 @media (max-width: 1180px) {

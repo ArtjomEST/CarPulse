@@ -1207,6 +1207,7 @@ function RadarModal({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (step !== 3) return;
     const title = name.trim() || [make, model].filter(Boolean).join(" ") || "Новый радар";
     const radarFilters = {
       ...filters,
@@ -1394,13 +1395,26 @@ function RadarModal({
           )}
           <footer className="modal-footer">
             <button className="secondary-button" type="button" onClick={step === 1 ? onClose : () => setStep((current) => current - 1)}>{step === 1 ? "Отмена" : "Назад"}</button>
-            {step < 3 ? (
-              <button className="primary-button" type="button" onClick={() => setStep((current) => current + 1)} disabled={!sources.length || catalogLoading || rangeInvalid}>Продолжить</button>
-            ) : (
-              <button className="primary-button" type="submit" disabled={!sources.length || rangeInvalid}>
-                {initialRadar ? "Сохранить изменения" : "Создать радар"}
-              </button>
-            )}
+            <button
+              className="primary-button"
+              type="button"
+              hidden={step >= 3}
+              onClick={(event) => {
+                event.preventDefault();
+                setStep((current) => Math.min(3, current + 1));
+              }}
+              disabled={!sources.length || catalogLoading || rangeInvalid}
+            >
+              Продолжить
+            </button>
+            <button
+              className="primary-button"
+              type="submit"
+              hidden={step < 3}
+              disabled={step < 3 || !sources.length || rangeInvalid}
+            >
+              {initialRadar ? "Сохранить изменения" : "Создать радар"}
+            </button>
           </footer>
         </form>
       </section>
