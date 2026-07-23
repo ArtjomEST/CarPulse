@@ -633,6 +633,7 @@ export function CarPulseApp() {
               onFavorite={toggleFavorite}
               onCreate={openCreateRadar}
               onViewRadars={() => changeView("radars")}
+              onShowAll={() => changeView("vehicles")}
               loading={loading}
               sourceStates={sourceStates}
             />
@@ -702,6 +703,7 @@ function Overview({
   onFavorite,
   onCreate,
   onViewRadars,
+  onShowAll,
   loading,
   sourceStates,
 }: {
@@ -713,6 +715,7 @@ function Overview({
   onFavorite: (id: number) => void;
   onCreate: () => void;
   onViewRadars: () => void;
+  onShowAll: () => void;
   loading: boolean;
   sourceStates: Record<string, SourceState>;
 }) {
@@ -758,7 +761,11 @@ function Overview({
             )}
           </div>
           {listings.length > 0 && (
-            <button className="wide-secondary-button" type="button">
+            <button
+              className="wide-secondary-button"
+              type="button"
+              onClick={onShowAll}
+            >
               Показать все автомобили
             </button>
           )}
