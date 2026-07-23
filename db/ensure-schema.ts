@@ -1,11 +1,27 @@
 import { env } from "cloudflare:workers";
 
-let schemaReady: Promise<unknown> | null = null;
+let schemaReady = false;
 
 export async function ensureSchema(database: D1Database = env.DB) {
   if (!database) throw new Error("D1 binding DB is unavailable");
-  schemaReady ??= initializeSchema(database);
-  await schemaReady;
+  if (schemaReady) return;
+
+  // Sites applies Drizzle migrations before the version starts serving traffic.
+  // Keep the runtime path read-only in that normal case: caching an in-flight D1
+  // promise across requests can strand later requests if the first client
+  // disconnects while a Worker isolate is still initializing.
+  try {
+    await database.prepare("SELECT id FROM users LIMIT 1").first();
+    schemaReady = true;
+    return;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/no such table:\s*users/iu.test(message)) throw error;
+  }
+
+  // Local development and legacy databases may not have run migrations yet.
+  await initializeSchema(database);
+  schemaReady = true;
 }
 
 async function initializeSchema(database: D1Database) {

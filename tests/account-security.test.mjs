@@ -52,3 +52,11 @@ test("admin and Telegram endpoints enforce server-side authorization", async () 
   assert.match(connection, /createTelegramConnectCode/);
   assert.match(connection, /15 \* 60_000/);
 });
+
+test("runtime schema checks do not cache request-scoped D1 promises", async () => {
+  const schemaBootstrap = await read("db/ensure-schema.ts");
+
+  assert.match(schemaBootstrap, /SELECT id FROM users LIMIT 1/);
+  assert.doesNotMatch(schemaBootstrap, /schemaReady\s*\?\?=/);
+  assert.doesNotMatch(schemaBootstrap, /schemaReady:\s*Promise/);
+});
