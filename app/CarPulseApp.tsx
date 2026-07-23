@@ -33,7 +33,7 @@ type View = "overview" | "radars" | "vehicles" | "favorites" | "settings";
 
 type Listing = {
   id: number;
-  radarId: number;
+  radars: Array<{ id: number; name: string }>;
   url: string;
   title: string;
   price: number;
@@ -145,6 +145,17 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("ru-RU").format(value);
 }
 
+function radarLabel(radars: Listing["radars"]) {
+  return [...new Set(radars.map((radar) => radar.name))].join(" · ");
+}
+
+function renameListingRadar(listing: Listing, radarId: number, name: string) {
+  const radars = listing.radars.map((radar) =>
+    radar.id === radarId ? { ...radar, name } : radar,
+  );
+  return { ...listing, radars, radar: radarLabel(radars) };
+}
+
 function relativeTime(value?: string | null) {
   if (!value) return "совпадений пока нет";
   const difference = Math.max(0, Date.now() - timestampMilliseconds(value));
@@ -205,6 +216,7 @@ export function CarPulseApp() {
           listings?: Array<{
             id: number;
             radarId: number;
+            radars?: Array<{ id: number; name: string }>;
             url: string;
             title: string;
             priceEur: number | null;
@@ -250,23 +262,28 @@ export function CarPulseApp() {
           })),
         );
         setListings(
-          (payload.listings || []).map((listing) => ({
-            id: listing.id,
-            radarId: listing.radarId,
-            url: listing.url,
-            title: listing.title,
-            price: listing.priceEur || 0,
-            year: listing.year || 0,
-            mileage: listing.mileageKm ? `${formatNumber(listing.mileageKm)} км` : "Пробег не указан",
-            fuel: listing.fuel || "Топливо не указано",
-            power: listing.powerKw ? `${listing.powerKw} кВт` : "Мощность не указана",
-            transmission: listing.transmission || "Коробка не указана",
-            location: listing.location || "Эстония",
-            source: listing.source,
-            age: relativeTime(listing.matchedAt),
-            radar: listing.radarName,
-            image: listing.imageUrl || "",
-          })),
+          (payload.listings || []).map((listing) => {
+            const radarMatches = listing.radars?.length
+              ? listing.radars
+              : [{ id: listing.radarId, name: listing.radarName }];
+            return {
+              id: listing.id,
+              radars: radarMatches,
+              url: listing.url,
+              title: listing.title,
+              price: listing.priceEur || 0,
+              year: listing.year || 0,
+              mileage: listing.mileageKm ? `${formatNumber(listing.mileageKm)} км` : "Пробег не указан",
+              fuel: listing.fuel || "Топливо не указано",
+              power: listing.powerKw ? `${listing.powerKw} кВт` : "Мощность не указана",
+              transmission: listing.transmission || "Коробка не указана",
+              location: listing.location || "Эстония",
+              source: listing.source,
+              age: relativeTime(listing.matchedAt),
+              radar: radarLabel(radarMatches),
+              image: listing.imageUrl || "",
+            };
+          }),
         );
         setTelegramConnected(Boolean(payload.telegram?.connected));
         const auto24Run = payload.sources?.Auto24?.lastRun;
@@ -458,9 +475,9 @@ export function CarPulseApp() {
     );
     setListings((current) =>
       current.map((listing) =>
-        listing.radarId === previousRadar.id
-          ? { ...listing, radar: updatedRadar.name }
-          : listing,
+        listing.radars.some((radar) => radar.id === previousRadar.id)
+          ? renameListingRadar(listing, previousRadar.id, updatedRadar.name)
+          : listing
       ),
     );
     closeRadarModal();
@@ -485,9 +502,9 @@ export function CarPulseApp() {
       );
       setListings((current) =>
         current.map((listing) =>
-          listing.radarId === previousRadar.id
-            ? { ...listing, radar: previousRadar.name }
-            : listing,
+          listing.radars.some((radar) => radar.id === previousRadar.id)
+            ? renameListingRadar(listing, previousRadar.id, previousRadar.name)
+            : listing
         ),
       );
       setToast(
@@ -500,10 +517,23 @@ export function CarPulseApp() {
     const index = radars.findIndex((radar) => radar.id === id);
     if (index < 0) return;
     const removedRadar = radars[index];
-    const removedListings = listings.filter((listing) => listing.radarId === id);
+    const previousListings = listings;
 
     setRadars((current) => current.filter((radar) => radar.id !== id));
-    setListings((current) => current.filter((listing) => listing.radarId !== id));
+    setListings((current) =>
+      current.flatMap((listing) => {
+        const nextRadars = listing.radars.filter((radar) => radar.id !== id);
+        return nextRadars.length
+          ? [
+              {
+                ...listing,
+                radars: nextRadars,
+                radar: radarLabel(nextRadars),
+              },
+            ]
+          : [];
+      }),
+    );
 
     try {
       const response = await fetch("/api/dashboard", {
@@ -522,7 +552,7 @@ export function CarPulseApp() {
         restored.splice(Math.min(index, restored.length), 0, removedRadar);
         return restored;
       });
-      setListings((current) => [...removedListings, ...current]);
+      setListings(previousListings);
       setToast(error instanceof Error ? error.message : "Не удалось удалить радар");
     }
   }
@@ -1098,7 +1128,13 @@ function ListingCard({ listing, favorite, onFavorite }: { listing: Listing; favo
           <span>{listing.year || "Год не указан"}</span><span>{listing.mileage}</span><span>{listing.fuel}</span><span>{listing.power}</span><span>{listing.transmission}</span>
         </div>
         <div className="listing-footer">
-          <div><span className="fresh-dot" /><strong>{listing.age}</strong><span>Радар: {listing.radar}</span></div>
+          <div>
+            <span className="fresh-dot" />
+            <strong>{listing.age}</strong>
+            <span>
+              {listing.radars.length > 1 ? "Радары" : "Радар"}: {listing.radar}
+            </span>
+          </div>
           <div className="listing-actions">
             <button className={`favorite-button ${favorite ? "is-favorite" : ""}`} type="button" onClick={() => onFavorite(listing.id)} aria-label={favorite ? "Убрать из избранного" : "Добавить в избранное"}><Heart size={19} fill={favorite ? "currentColor" : "none"} /></button>
             <a href={listing.url} target="_blank" rel="noreferrer">Открыть объявление <ExternalLink size={16} /></a>

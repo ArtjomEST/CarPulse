@@ -83,7 +83,7 @@ export async function GET(request: Request) {
          INNER JOIN radars r ON r.id = rm.radar_id
          WHERE r.user_email = ?
          ORDER BY rm.matched_at DESC
-         LIMIT 50`,
+         LIMIT 500`,
       )
         .bind(email)
         .all<ListingRow>(),
@@ -101,6 +101,26 @@ export async function GET(request: Request) {
       ).first(),
     ]);
 
+    const groupedListings = new Map<
+      number,
+      {
+        listing: ListingRow;
+        radars: Map<number, string>;
+      }
+    >();
+    for (const listing of listingResult.results) {
+      const existing = groupedListings.get(listing.id);
+      if (existing) {
+        existing.radars.set(listing.radar_id, listing.radar_name);
+        continue;
+      }
+      if (groupedListings.size >= 50) continue;
+      groupedListings.set(listing.id, {
+        listing,
+        radars: new Map([[listing.radar_id, listing.radar_name]]),
+      });
+    }
+
     return Response.json({
       radars: radarResult.results.map((radar) => ({
         id: radar.id,
@@ -113,11 +133,13 @@ export async function GET(request: Request) {
         matches: Number(radar.matches || 0),
         lastMatchAt: radar.last_match_at,
       })),
-      listings: listingResult.results.map((listing) => {
+      listings: [...groupedListings.values()].map(({ listing, radars }) => {
         const raw = parseJson<Record<string, unknown>>(listing.raw_json, {});
+        const radarMatches = [...radars].map(([id, name]) => ({ id, name }));
         return {
           id: listing.id,
           radarId: listing.radar_id,
+          radars: radarMatches,
           externalId: listing.external_id,
           url: listing.url,
           title: listing.title,
@@ -132,7 +154,9 @@ export async function GET(request: Request) {
           imageUrl: listing.image_url,
           source: listing.source,
           matchedAt: listing.matched_at,
-          radarName: listing.radar_name,
+          radarName: [...new Set(radarMatches.map((radar) => radar.name))].join(
+            " · ",
+          ),
           powerKw: typeof raw.powerKw === "number" ? raw.powerKw : null,
           bodyType: typeof raw.bodyType === "string" ? raw.bodyType : null,
         };
