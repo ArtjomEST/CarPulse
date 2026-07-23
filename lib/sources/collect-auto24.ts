@@ -6,7 +6,7 @@ import { normalizeAuthorizedAuto24Record, type AuthorizedAuto24Record } from "./
 import { matchesRadar } from "./matching";
 import type { NormalizedListing, RadarQuery } from "./types";
 
-const DEFAULT_SEARCH_URL =
+export const DEFAULT_AUTO24_SEARCH_URL =
   "https://www.auto24.ee/kasutatud/nimekiri.php?ad=1&otsi=otsi&ae=1&ak=0";
 const SOURCE = "Auto24";
 
@@ -23,7 +23,7 @@ type ActiveRadar = {
   filter_json: string | null;
 };
 
-type ExtractedAuto24Record = AuthorizedAuto24Record & {
+export type ExtractedAuto24Record = AuthorizedAuto24Record & {
   bodyType?: string | null;
   drivetrain?: string | null;
   powerKw?: number | null;
@@ -51,7 +51,7 @@ export async function collectAuto24(env: Auto24CollectorEnv): Promise<Auto24RunR
     const radars = await loadActiveAuto24Radars(env.DB);
     const records = await fetchAuto24WithBrowser(
       env.BROWSER,
-      env.AUTO24_SEARCH_URL || DEFAULT_SEARCH_URL,
+      env.AUTO24_SEARCH_URL || DEFAULT_AUTO24_SEARCH_URL,
       radars,
     );
     const result = await ingestAuto24Records(env.DB, records, radars);
@@ -137,6 +137,120 @@ export async function ingestAuto24Records(
     receivedCount: records.length,
     newListingCount,
     newMatchCount,
+  };
+}
+
+export async function loadAuto24CollectorConfiguration(
+  database: D1Database,
+  searchUrl = DEFAULT_AUTO24_SEARCH_URL,
+) {
+  await ensureSchema(database);
+  const radars = await loadActiveAuto24Radars(database);
+  return {
+    source: SOURCE,
+    searchUrl,
+    filterValues: auto24FilterValues,
+    radars: radars.map((radar) => ({
+      id: radar.id,
+      filters: radar.filters,
+    })),
+  };
+}
+
+export async function recordExternalAuto24Run(
+  database: D1Database,
+  input: {
+    status: "success" | "blocked" | "failed";
+    records?: ExtractedAuto24Record[];
+    message?: string;
+  },
+): Promise<Auto24RunResult> {
+  await ensureSchema(database);
+  const started = await database
+    .prepare("INSERT INTO source_runs (source, status) VALUES (?, ?) RETURNING id")
+    .bind(SOURCE, "running")
+    .first<{ id: number }>();
+  if (!started) throw new Error("Не удалось создать запись запуска Auto24");
+
+  if (input.status !== "success") {
+    const result = {
+      receivedCount: 0,
+      newListingCount: 0,
+      newMatchCount: 0,
+      message: input.message || "Внешний сборщик Auto24 не завершил проверку",
+    };
+    await finishRun(database, started.id, input.status, result);
+    return { runId: started.id, status: input.status, ...result };
+  }
+
+  try {
+    const records = input.records || [];
+    const result = await ingestAuto24Records(database, records);
+    await finishRun(database, started.id, "success", result);
+    return { runId: started.id, status: "success", ...result };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Неизвестная ошибка внешнего сборщика Auto24";
+    const result = {
+      receivedCount: 0,
+      newListingCount: 0,
+      newMatchCount: 0,
+      message,
+    };
+    await finishRun(database, started.id, "failed", result);
+    return { runId: started.id, status: "failed", ...result };
+  }
+}
+
+export async function monitorExternalAuto24Collector(
+  database: D1Database,
+  maximumSilenceMinutes = 50,
+) {
+  await ensureSchema(database);
+  const latest = await database
+    .prepare(
+      `SELECT id, status, started_at, finished_at
+       FROM source_runs
+       WHERE source = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+    )
+    .bind(SOURCE)
+    .first<{
+      id: number;
+      status: string;
+      started_at: string;
+      finished_at: string | null;
+    }>();
+  const timestamp = latest?.finished_at || latest?.started_at;
+  const ageMs = timestamp
+    ? Date.now() - new Date(`${timestamp.replace(" ", "T")}Z`).getTime()
+    : Number.POSITIVE_INFINITY;
+  if (ageMs <= maximumSilenceMinutes * 60_000) {
+    return {
+      healthy: true,
+      lastRunId: latest?.id || null,
+      lastStatus: latest?.status || null,
+    };
+  }
+
+  const message =
+    `EXTERNAL_COLLECTOR_STALE: внешний сборщик Auto24 не присылал ` +
+    `результат больше ${maximumSilenceMinutes} минут`;
+  const failed = await database
+    .prepare(
+      `INSERT INTO source_runs (
+         source, status, error_message, finished_at
+       ) VALUES (?, 'failed', ?, CURRENT_TIMESTAMP)
+       RETURNING id`,
+    )
+    .bind(SOURCE, message)
+    .first<{ id: number }>();
+  return {
+    healthy: false,
+    lastRunId: failed?.id || null,
+    lastStatus: "failed",
+    message,
   };
 }
 

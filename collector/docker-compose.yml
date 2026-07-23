@@ -1,0 +1,12 @@
+services:
+  auto24-collector:
+    build: .
+    container_name: carpulse-auto24-collector
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - auto24-profile:/data/chrome-profile
+
+volumes:
+  auto24-profile:

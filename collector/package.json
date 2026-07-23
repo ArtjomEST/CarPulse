@@ -1,0 +1,17 @@
+{
+  "name": "carpulse-auto24-collector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/index.mjs",
+    "run": "node src/index.mjs --once",
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "puppeteer-core": "25.3.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

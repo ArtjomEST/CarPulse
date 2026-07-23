@@ -17,11 +17,13 @@ import {
   Menu,
   MessageCircle,
   MoreHorizontal,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
   Settings,
   SlidersHorizontal,
+  Trash2,
   X,
 } from "lucide-react";
 import Image from "next/image";
@@ -31,6 +33,7 @@ type View = "overview" | "radars" | "vehicles" | "favorites" | "settings";
 
 type Listing = {
   id: number;
+  radarId: number;
   url: string;
   title: string;
   price: number;
@@ -100,6 +103,7 @@ type SourceState = {
   status: "success" | "blocked" | "failed" | "waiting";
   label: string;
   checkedAt?: string | null;
+  detail?: string | null;
 };
 
 const navigation = [
@@ -159,6 +163,7 @@ export function CarPulseApp() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [favorites, setFavorites] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingRadar, setEditingRadar] = useState<Radar | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [toast, setToast] = useState("");
@@ -190,6 +195,7 @@ export function CarPulseApp() {
           }>;
           listings?: Array<{
             id: number;
+            radarId: number;
             url: string;
             title: string;
             priceEur: number | null;
@@ -237,6 +243,7 @@ export function CarPulseApp() {
         setListings(
           (payload.listings || []).map((listing) => ({
             id: listing.id,
+            radarId: listing.radarId,
             url: listing.url,
             title: listing.title,
             price: listing.priceEur || 0,
@@ -267,9 +274,14 @@ export function CarPulseApp() {
                   auto24Run.status === "success"
                     ? "Работает"
                     : auto24Run.status === "blocked"
-                      ? "Остановлена защитой"
+                      ? "Защита не пропустила"
+                      : auto24Run.error_message?.startsWith(
+                            "EXTERNAL_COLLECTOR_STALE:",
+                          )
+                        ? "Сборщик не отвечает"
                       : "Ошибка проверки",
                 checkedAt: auto24Run.finished_at || auto24Run.started_at,
+                detail: auto24Run.error_message,
               }
             : { status: "waiting", label: "Ожидает первой проверки" },
           "SS.lv": { status: "waiting", label: "Не подключена" },
@@ -310,6 +322,21 @@ export function CarPulseApp() {
     setView(nextView);
     setMenuOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openCreateRadar() {
+    setEditingRadar(null);
+    setModalOpen(true);
+  }
+
+  function openEditRadar(radar: Radar) {
+    setEditingRadar(radar);
+    setModalOpen(true);
+  }
+
+  function closeRadarModal() {
+    setModalOpen(false);
+    setEditingRadar(null);
   }
 
   function toggleFavorite(id: number) {
@@ -376,11 +403,92 @@ export function CarPulseApp() {
         },
         ...current,
       ]);
-      setModalOpen(false);
+      closeRadarModal();
       setView("radars");
-      setToast("Радар сохранён. Auto24 проверяется каждые 30 минут.");
+      setToast("Радар сохранён. Настройки уже действуют.");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Не удалось создать радар");
+    }
+  }
+
+  async function updateRadar(
+    radar: Omit<Radar, "id" | "matches" | "lastSeen">,
+  ) {
+    if (!editingRadar) return;
+    const previousRadar = editingRadar;
+    const updatedRadar = { ...previousRadar, ...radar };
+
+    setRadars((current) =>
+      current.map((item) => (item.id === previousRadar.id ? updatedRadar : item)),
+    );
+    setListings((current) =>
+      current.map((listing) =>
+        listing.radarId === previousRadar.id
+          ? { ...listing, radar: updatedRadar.name }
+          : listing,
+      ),
+    );
+    closeRadarModal();
+
+    try {
+      const response = await fetch("/api/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_radar",
+          radar: { ...radar, id: previousRadar.id },
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Не удалось сохранить изменения");
+      }
+      setToast("Радар изменён. Новые настройки уже действуют.");
+    } catch (error) {
+      setRadars((current) =>
+        current.map((item) => (item.id === previousRadar.id ? previousRadar : item)),
+      );
+      setListings((current) =>
+        current.map((listing) =>
+          listing.radarId === previousRadar.id
+            ? { ...listing, radar: previousRadar.name }
+            : listing,
+        ),
+      );
+      setToast(
+        error instanceof Error ? error.message : "Не удалось сохранить изменения",
+      );
+    }
+  }
+
+  async function deleteRadar(id: number) {
+    const index = radars.findIndex((radar) => radar.id === id);
+    if (index < 0) return;
+    const removedRadar = radars[index];
+    const removedListings = listings.filter((listing) => listing.radarId === id);
+
+    setRadars((current) => current.filter((radar) => radar.id !== id));
+    setListings((current) => current.filter((listing) => listing.radarId !== id));
+
+    try {
+      const response = await fetch("/api/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_radar", id }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Не удалось удалить радар");
+      }
+      setToast(`Радар «${removedRadar.name}» удалён.`);
+    } catch (error) {
+      setRadars((current) => {
+        const restored = [...current];
+        restored.splice(Math.min(index, restored.length), 0, removedRadar);
+        return restored;
+      });
+      setListings((current) => [...removedListings, ...current]);
+      setToast(error instanceof Error ? error.message : "Не удалось удалить радар");
     }
   }
 
@@ -472,7 +580,7 @@ export function CarPulseApp() {
                   {telegramConnected ? <Check size={19} /> : <MessageCircle size={19} />}
                   {telegramConnected ? "Telegram подключён" : "Подключить Telegram"}
                 </button>
-                <button className="primary-button" type="button" onClick={() => setModalOpen(true)}>
+                <button className="primary-button" type="button" onClick={openCreateRadar}>
                   <Plus size={19} />
                   Создать радар
                 </button>
@@ -488,7 +596,7 @@ export function CarPulseApp() {
               sourceFilter={sourceFilter}
               setSourceFilter={setSourceFilter}
               onFavorite={toggleFavorite}
-              onCreate={() => setModalOpen(true)}
+              onCreate={openCreateRadar}
               onViewRadars={() => changeView("radars")}
               loading={loading}
               sourceStates={sourceStates}
@@ -496,7 +604,13 @@ export function CarPulseApp() {
           )}
 
           {view === "radars" && (
-            <RadarsView radars={radars} onToggle={toggleRadar} onCreate={() => setModalOpen(true)} />
+            <RadarsView
+              radars={radars}
+              onToggle={toggleRadar}
+              onCreate={openCreateRadar}
+              onEdit={openEditRadar}
+              onDelete={deleteRadar}
+            />
           )}
 
           {(view === "vehicles" || view === "favorites") && (
@@ -527,7 +641,13 @@ export function CarPulseApp() {
         </div>
       </main>
 
-      {modalOpen && <RadarModal onClose={() => setModalOpen(false)} onCreate={createRadar} />}
+      {modalOpen && (
+        <RadarModal
+          initialRadar={editingRadar}
+          onClose={closeRadarModal}
+          onSave={editingRadar ? updateRadar : createRadar}
+        />
+      )}
       {toast && (
         <div className="toast" role="status">
           <Check size={19} />
@@ -561,6 +681,11 @@ function Overview({
   loading: boolean;
   sourceStates: Record<string, SourceState>;
 }) {
+  const auto24State = sourceStates.Auto24;
+  const sourceCheckedLabel = auto24State?.checkedAt
+    ? `проверено ${relativeTime(auto24State.checkedAt)}`
+    : "ещё не проверено";
+
   return (
     <>
       <div className="dashboard-grid">
@@ -642,7 +767,7 @@ function Overview({
           <section className="sources-card">
             <div className="source-health-heading">
               <h3>Состояние площадок</h3>
-              <span><RefreshCw size={14} /> обновлено сейчас</span>
+              <span><RefreshCw size={14} /> {sourceCheckedLabel}</span>
             </div>
             {["Auto24", "SS.lv", "Nettiauto", "mobile.de"].map((source) => (
               <div className="source-health" key={source}>
@@ -651,6 +776,14 @@ function Overview({
                 <span>{sourceStates[source]?.label || "Не подключена"}</span>
               </div>
             ))}
+            {(auto24State?.status === "blocked" || auto24State?.status === "failed") && (
+              <p className="source-health-note">
+                {auto24State.detail
+                  ?.replace(/^AUTO24_BLOCKED:\s*/, "")
+                  .replace(/^EXTERNAL_COLLECTOR_STALE:\s*/, "") ||
+                  "Последняя проверка Auto24 не завершилась. Остальные площадки продолжают работать."}
+              </p>
+            )}
           </section>
         </aside>
       </div>
@@ -708,7 +841,27 @@ function VehiclesView({
   );
 }
 
-function RadarsView({ radars, onToggle, onCreate }: { radars: Radar[]; onToggle: (id: number) => void; onCreate: () => void }) {
+function RadarsView({
+  radars,
+  onToggle,
+  onCreate,
+  onEdit,
+  onDelete,
+}: {
+  radars: Radar[];
+  onToggle: (id: number) => void;
+  onCreate: () => void;
+  onEdit: (radar: Radar) => void;
+  onDelete: (id: number) => void | Promise<void>;
+}) {
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  function closeMenu() {
+    setOpenMenuId(null);
+    setConfirmDeleteId(null);
+  }
+
   return (
     <section className="full-panel">
       <div className="radar-list-header">
@@ -741,7 +894,80 @@ function RadarsView({ radars, onToggle, onCreate }: { radars: Radar[]; onToggle:
                 <input type="checkbox" checked={radar.enabled} onChange={() => onToggle(radar.id)} aria-label={`${radar.enabled ? "Остановить" : "Запустить"} радар ${radar.name}`} />
                 <span className="switch-track"><span /></span>
               </label>
-              <button className="icon-button" type="button" aria-label={`Меню радара ${radar.name}`}><MoreHorizontal size={20} /></button>
+              <div
+                className="radar-menu-wrap"
+                onBlur={(event) => {
+                  if (
+                    !event.currentTarget.contains(
+                      event.relatedTarget as Node | null,
+                    )
+                  ) {
+                    closeMenu();
+                  }
+                }}
+              >
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label={`Меню радара ${radar.name}`}
+                  aria-haspopup="menu"
+                  aria-expanded={openMenuId === radar.id}
+                  onClick={() => {
+                    setConfirmDeleteId(null);
+                    setOpenMenuId((current) => (current === radar.id ? null : radar.id));
+                  }}
+                >
+                  <MoreHorizontal size={20} />
+                </button>
+                {openMenuId === radar.id && (
+                  <div className="radar-menu" role="menu">
+                    {confirmDeleteId === radar.id ? (
+                      <div className="radar-menu-confirm">
+                        <strong>Удалить радар?</strong>
+                        <span>Совпадения этого радара исчезнут из ленты.</span>
+                        <div>
+                          <button type="button" onClick={() => setConfirmDeleteId(null)}>
+                            Отмена
+                          </button>
+                          <button
+                            className="radar-menu-delete-confirm"
+                            type="button"
+                            onClick={() => {
+                              closeMenu();
+                              void onDelete(radar.id);
+                            }}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            closeMenu();
+                            onEdit(radar);
+                          }}
+                        >
+                          <Pencil size={17} />
+                          Изменить
+                        </button>
+                        <button
+                          className="radar-menu-danger"
+                          type="button"
+                          role="menuitem"
+                          onClick={() => setConfirmDeleteId(radar.id)}
+                        >
+                          <Trash2 size={17} />
+                          Удалить
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </article>
         ))}
@@ -854,20 +1080,22 @@ function SourceSelect({ value, onChange }: { value: string; onChange: (source: s
 }
 
 function RadarModal({
+  initialRadar,
   onClose,
-  onCreate,
+  onSave,
 }: {
+  initialRadar: Radar | null;
   onClose: () => void;
-  onCreate: (radar: Omit<Radar, "id" | "matches" | "lastSeen">) => void;
+  onSave: (radar: Omit<Radar, "id" | "matches" | "lastSeen">) => void;
 }) {
   const [step, setStep] = useState(1);
-  const [sources, setSources] = useState(["Auto24"]);
-  const [name, setName] = useState("");
-  const [makeId, setMakeId] = useState("");
-  const [make, setMake] = useState("");
-  const [modelId, setModelId] = useState("");
-  const [model, setModel] = useState("");
-  const [filters, setFilters] = useState<RadarFilters>({});
+  const [sources, setSources] = useState(initialRadar?.sources || ["Auto24"]);
+  const [name, setName] = useState(initialRadar?.name || "");
+  const [makeId, setMakeId] = useState(initialRadar?.filters.catalogMakeId || "");
+  const [make, setMake] = useState(initialRadar?.filters.make || "");
+  const [modelId, setModelId] = useState(initialRadar?.filters.catalogModelId || "");
+  const [model, setModel] = useState(initialRadar?.filters.model || "");
+  const [filters, setFilters] = useState<RadarFilters>(initialRadar?.filters || {});
   const [makes, setMakes] = useState<CatalogOption[]>([]);
   const [models, setModels] = useState<CatalogOption[]>([]);
   const [filterOptions, setFilterOptions] = useState<CatalogFilters>({
@@ -999,11 +1227,11 @@ function RadarModal({
         ? `${radarFilters.mileageMin ? formatNumber(radarFilters.mileageMin) : "0"}–${radarFilters.mileageMax ? formatNumber(radarFilters.mileageMax) : "…"} км`
         : "",
     ].filter(Boolean);
-    onCreate({
+    onSave({
       name: title,
       query: queryParts.join(" · "),
       sources: sources.length ? sources : ["Auto24"],
-      enabled: true,
+      enabled: initialRadar?.enabled ?? true,
       filters: radarFilters,
     });
   }
@@ -1019,7 +1247,7 @@ function RadarModal({
       <section className="radar-modal" role="dialog" aria-modal="true" aria-labelledby="radar-modal-title">
         <header className="modal-header">
           <div>
-            <p>Новый радар · шаг {step} из 3</p>
+            <p>{initialRadar ? "Изменение радара" : "Новый радар"} · шаг {step} из 3</p>
             <h2 id="radar-modal-title">
               {step === 1
                 ? "Площадки и автомобиль"
@@ -1169,7 +1397,9 @@ function RadarModal({
             {step < 3 ? (
               <button className="primary-button" type="button" onClick={() => setStep((current) => current + 1)} disabled={!sources.length || catalogLoading || rangeInvalid}>Продолжить</button>
             ) : (
-              <button className="primary-button" type="submit" disabled={!sources.length || rangeInvalid}>Создать радар</button>
+              <button className="primary-button" type="submit" disabled={!sources.length || rangeInvalid}>
+                {initialRadar ? "Сохранить изменения" : "Создать радар"}
+              </button>
             )}
           </footer>
         </form>

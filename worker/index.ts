@@ -1,12 +1,16 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { collectAuto24 } from "../lib/sources/collect-auto24";
+import {
+  collectAuto24,
+  monitorExternalAuto24Collector,
+} from "../lib/sources/collect-auto24";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   BROWSER: Fetcher;
+  AUTO24_MODE?: string;
   AUTO24_SEARCH_URL?: string;
   IMAGES: {
     input(stream: ReadableStream): {
@@ -47,6 +51,14 @@ const worker = {
   },
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    if (env.AUTO24_MODE === "external") {
+      ctx.waitUntil(
+        monitorExternalAuto24Collector(env.DB).then((result) => {
+          console.log("Auto24 external collector monitor", JSON.stringify(result));
+        }),
+      );
+      return;
+    }
     ctx.waitUntil(
       collectAuto24(env).then((result) => {
         console.log("Auto24 scheduled run", JSON.stringify(result));

@@ -189,6 +189,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .source-health:has(.status-blocked) > span:last-child,
 .source-health:has(.status-failed) > span:last-child { color: var(--red); }
 .source-health:has(.status-waiting) > span:last-child { color: #76631f; }
+.source-health-note { margin: 10px 0 0; padding: 10px 11px; border-left: 3px solid var(--red); background: #fff6f6; color: #6d3c3f; font-size: 12px; line-height: 1.4; }
 
 .feed-empty { display: grid; min-height: 320px; place-items: center; align-content: center; padding: 30px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--surface-soft); text-align: center; }
 .feed-empty > span { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 50%; background: #eeeeeb; color: #656967; }
@@ -229,6 +230,41 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .radar-card-side > div { display: flex; flex-direction: column; align-items: flex-end; }
 .radar-card-side > div strong { font-size: 21px; }
 .radar-card-side > div small, .radar-card-side > span { color: var(--muted); font-size: 11px; }
+.radar-menu-wrap { position: relative; }
+.radar-menu {
+  position: absolute;
+  z-index: 15;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  width: 208px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 10px 28px rgba(28, 30, 29, .16);
+}
+.radar-menu > button {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 13px;
+  border: 0;
+  border-bottom: 1px solid #eceeeb;
+  background: white;
+  text-align: left;
+  cursor: pointer;
+}
+.radar-menu > button:last-child { border-bottom: 0; }
+.radar-menu > button:hover { background: var(--surface-soft); }
+.radar-menu > .radar-menu-danger { color: var(--red); }
+.radar-menu-confirm { display: grid; gap: 5px; padding: 13px; align-items: stretch !important; }
+.radar-menu-confirm strong { font-size: 14px !important; }
+.radar-menu-confirm > span { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.radar-menu-confirm > div { display: grid !important; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 6px; }
+.radar-menu-confirm button { min-height: 38px; border: 1px solid var(--line-strong); border-radius: 6px; background: white; font-size: 13px; font-weight: 700; cursor: pointer; }
+.radar-menu-confirm .radar-menu-delete-confirm { border-color: var(--red-dark); background: var(--red); color: white; }
 .switch { display: inline-flex; cursor: pointer; }
 .switch input { position: absolute; opacity: 0; pointer-events: none; }
 .switch-track { position: relative; width: 44px; height: 25px; border-radius: 13px; background: #b9bcb9; transition: background 120ms ease; }

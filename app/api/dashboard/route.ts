@@ -19,6 +19,7 @@ type RadarRow = {
 
 type ListingRow = {
   id: number;
+  radar_id: number;
   external_id: string;
   url: string;
   title: string;
@@ -53,6 +54,10 @@ export async function GET(request: Request) {
   try {
     await ensureSchema();
     const email = userEmail(request);
+    const collectorMode =
+      (env as unknown as { AUTO24_MODE?: string }).AUTO24_MODE === "external"
+        ? "external"
+        : "browser";
     const [radarResult, listingResult, telegram, auto24Run] = await Promise.all([
       env.DB.prepare(
         `SELECT r.id, r.name, r.query, r.sources, r.enabled, r.created_at,
@@ -69,7 +74,7 @@ export async function GET(request: Request) {
         .bind(email)
         .all<RadarRow>(),
       env.DB.prepare(
-        `SELECT l.id, l.external_id, l.url, l.title, l.make, l.model,
+        `SELECT l.id, r.id AS radar_id, l.external_id, l.url, l.title, l.make, l.model,
                 l.price_eur, l.year, l.mileage_km, l.fuel, l.transmission,
                 l.location, l.image_url, l.raw_json, l.source,
                 rm.matched_at, r.name AS radar_name
@@ -112,6 +117,7 @@ export async function GET(request: Request) {
         const raw = parseJson<Record<string, unknown>>(listing.raw_json, {});
         return {
           id: listing.id,
+          radarId: listing.radar_id,
           externalId: listing.external_id,
           url: listing.url,
           title: listing.title,
@@ -135,7 +141,7 @@ export async function GET(request: Request) {
       sources: {
         Auto24: {
           intervalMinutes: 30,
-          mode: "browser",
+          mode: collectorMode,
           lastRun: auto24Run,
         },
         "SS.lv": { mode: "not_connected" },
@@ -238,6 +244,79 @@ export async function POST(request: Request) {
         .first<{ id: number; enabled: number }>();
       if (!updated) return Response.json({ error: "Радар не найден" }, { status: 404 });
       return Response.json({ id: updated.id, enabled: Boolean(updated.enabled) });
+    }
+
+    if (payload.action === "update_radar") {
+      const id = Number(payload.radar?.id);
+      const name = payload.radar?.name?.trim();
+      if (!Number.isInteger(id)) {
+        return Response.json({ error: "Некорректный ID радара" }, { status: 400 });
+      }
+      if (!name) {
+        return Response.json({ error: "Укажите название радара" }, { status: 400 });
+      }
+      const owned = await env.DB.prepare(
+        "SELECT id FROM radars WHERE id = ? AND user_email = ?",
+      )
+        .bind(id, email)
+        .first<{ id: number }>();
+      if (!owned) return Response.json({ error: "Радар не найден" }, { status: 404 });
+
+      const sources = (payload.radar?.sources || ["Auto24"])
+        .filter((source) => ALLOWED_SOURCES.has(source))
+        .slice(0, 4);
+      const filters = normalizeFilters(payload.radar?.filters);
+      const query = payload.radar?.query?.trim() || describeFilters(filters);
+      const enabled = payload.radar?.enabled === false ? 0 : 1;
+
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE radars
+           SET name = ?, query = ?, sources = ?, enabled = ?
+           WHERE id = ? AND user_email = ?`,
+        ).bind(
+          name,
+          query,
+          JSON.stringify(sources.length ? sources : ["Auto24"]),
+          enabled,
+          id,
+          email,
+        ),
+        env.DB.prepare(
+          `INSERT INTO radar_filters (radar_id, filter_json, updated_at)
+           VALUES (?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(radar_id) DO UPDATE SET
+             filter_json = excluded.filter_json,
+             updated_at = CURRENT_TIMESTAMP`,
+        ).bind(id, JSON.stringify(filters)),
+      ]);
+
+      return Response.json({
+        radar: {
+          id,
+          name,
+          query,
+          sources: sources.length ? sources : ["Auto24"],
+          enabled: Boolean(enabled),
+          filters,
+        },
+      });
+    }
+
+    if (payload.action === "delete_radar") {
+      const id = Number(payload.id);
+      if (!Number.isInteger(id)) {
+        return Response.json({ error: "Некорректный ID радара" }, { status: 400 });
+      }
+      const deleted = await env.DB.prepare(
+        `DELETE FROM radars
+         WHERE id = ? AND user_email = ?
+         RETURNING id`,
+      )
+        .bind(id, email)
+        .first<{ id: number }>();
+      if (!deleted) return Response.json({ error: "Радар не найден" }, { status: 404 });
+      return Response.json({ id: deleted.id, deleted: true });
     }
 
     if (payload.action === "telegram_code") {
