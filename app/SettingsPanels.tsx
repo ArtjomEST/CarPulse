@@ -49,6 +49,11 @@ export function TelegramSettingsPanel({
   const [botState, setBotState] = useState<{
     configured: boolean;
     bot?: { username: string; name: string };
+    webhook?: {
+      active: boolean;
+      pendingUpdateCount: number;
+      lastError?: string | null;
+    };
   } | null>(null);
 
   const loadConnection = useCallback(async () => {
@@ -92,6 +97,11 @@ export function TelegramSettingsPanel({
         const payload = (await response.json()) as {
           configured: boolean;
           bot?: { username: string; name: string };
+          webhook?: {
+            active: boolean;
+            pendingUpdateCount: number;
+            lastError?: string | null;
+          };
         };
         if (active && response.ok) setBotState(payload);
       } catch {
@@ -157,9 +167,18 @@ export function TelegramSettingsPanel({
       const payload = (await response.json()) as {
         error?: string;
         bot?: { username: string; name: string };
+        webhook?: {
+          active: boolean;
+          pendingUpdateCount: number;
+          lastError?: string | null;
+        };
       };
       if (!response.ok) throw new Error(payload.error || "Не удалось настроить webhook");
-      setBotState({ configured: true, bot: payload.bot });
+      setBotState({
+        configured: true,
+        bot: payload.bot,
+        webhook: payload.webhook,
+      });
       setNotice("Webhook Telegram настроен и принимает команды.");
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Не удалось настроить webhook");
@@ -243,7 +262,7 @@ export function TelegramSettingsPanel({
             <div><h2>Telegram backend</h2><p>Состояние production-бота и webhook.</p></div>
           </div>
           <div className="bot-admin-state">
-            <span className={`status-dot ${botState?.configured ? "status-success" : "status-waiting"}`} />
+            <span className={`status-dot ${botState?.webhook?.active ? "status-success" : "status-waiting"}`} />
             <div>
               <strong>
                 {botState?.configured
@@ -251,10 +270,17 @@ export function TelegramSettingsPanel({
                   : "Токен не настроен"}
               </strong>
               <small>
-                {botState?.configured
-                  ? "BotFather token доступен только Worker runtime."
+                {botState?.webhook?.active
+                  ? `Webhook активен · в очереди ${botState.webhook.pendingUpdateCount}`
+                  : botState?.configured
+                    ? "Токен загружен, webhook ещё нужно активировать."
                   : "Добавьте TELEGRAM_BOT_TOKEN как secret в Sites."}
               </small>
+              {botState?.webhook?.lastError && (
+                <small className="settings-inline-error">
+                  Telegram: {botState.webhook.lastError}
+                </small>
+              )}
             </div>
           </div>
           <button

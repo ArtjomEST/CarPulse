@@ -41,10 +41,11 @@ test("dashboard ownership is based on authenticated user ids", async () => {
 });
 
 test("admin and Telegram endpoints enforce server-side authorization", async () => {
-  const [admin, webhook, connection] = await Promise.all([
+  const [admin, webhook, connection, telegram] = await Promise.all([
     read("app/api/admin/users/route.ts"),
     read("app/api/telegram/webhook/route.ts"),
     read("app/api/telegram/connection/route.ts"),
+    read("lib/telegram.ts"),
   ]);
 
   assert.match(admin, /requireAdmin\(env\.DB, request\)/);
@@ -54,6 +55,9 @@ test("admin and Telegram endpoints enforce server-side authorization", async () 
   assert.match(webhook, /code_expires_at > CURRENT_TIMESTAMP/);
   assert.match(connection, /createTelegramConnectCode/);
   assert.match(connection, /15 \* 60_000/);
+  assert.match(telegram, /setMyCommands/);
+  assert.match(telegram, /setMyDescription/);
+  assert.match(telegram, /getWebhookInfo/);
 });
 
 test("runtime schema checks do not cache request-scoped D1 promises", async () => {

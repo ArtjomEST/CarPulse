@@ -8,6 +8,7 @@ import {
 import {
   configureTelegramWebhook,
   getTelegramBotIdentity,
+  getTelegramWebhookInfo,
 } from "../../../../lib/telegram";
 
 type TelegramRuntimeEnv = {
@@ -26,7 +27,10 @@ export async function GET(request: Request) {
     if (!telegramEnv.TELEGRAM_BOT_TOKEN) {
       return Response.json({ configured: false });
     }
-    const bot = await getTelegramBotIdentity(telegramEnv.TELEGRAM_BOT_TOKEN);
+    const [bot, webhook] = await Promise.all([
+      getTelegramBotIdentity(telegramEnv.TELEGRAM_BOT_TOKEN),
+      getTelegramWebhookInfo(telegramEnv.TELEGRAM_BOT_TOKEN),
+    ]);
     return Response.json({
       configured: true,
       bot: {
@@ -34,6 +38,7 @@ export async function GET(request: Request) {
         username: bot.username,
         name: bot.first_name,
       },
+      webhook: publicWebhook(webhook),
     });
   } catch (error) {
     return authErrorResponse(error);
@@ -53,7 +58,7 @@ export async function POST(request: Request) {
       );
     }
     const webhookUrl = new URL("/api/telegram/webhook", request.url).toString();
-    await configureTelegramWebhook(
+    const webhook = await configureTelegramWebhook(
       telegramEnv.TELEGRAM_BOT_TOKEN,
       webhookUrl,
     );
@@ -61,6 +66,7 @@ export async function POST(request: Request) {
     return Response.json({
       configured: true,
       webhookUrl,
+      webhook: publicWebhook(webhook),
       bot: {
         id: bot.id,
         username: bot.username,
@@ -70,4 +76,16 @@ export async function POST(request: Request) {
   } catch (error) {
     return authErrorResponse(error);
   }
+}
+
+function publicWebhook(webhook: {
+  url: string;
+  pending_update_count: number;
+  last_error_message?: string;
+}) {
+  return {
+    active: Boolean(webhook.url),
+    pendingUpdateCount: Number(webhook.pending_update_count || 0),
+    lastError: webhook.last_error_message || null,
+  };
 }

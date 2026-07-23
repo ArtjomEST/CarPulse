@@ -24,6 +24,12 @@ export type TelegramBotIdentity = {
   first_name: string;
 };
 
+export type TelegramWebhookInfo = {
+  url: string;
+  pending_update_count: number;
+  last_error_message?: string;
+};
+
 export function createTelegramConnectCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const random = crypto.getRandomValues(new Uint8Array(8));
@@ -52,6 +58,10 @@ export async function getTelegramBotIdentity(botToken: string) {
   return telegramApi<TelegramBotIdentity>(botToken, "getMe", {});
 }
 
+export async function getTelegramWebhookInfo(botToken: string) {
+  return telegramApi<TelegramWebhookInfo>(botToken, "getWebhookInfo", {});
+}
+
 export async function configureTelegramWebhook(
   botToken: string,
   webhookUrl: string,
@@ -60,12 +70,35 @@ export async function configureTelegramWebhook(
   if (url.protocol !== "https:") {
     throw new Error("Telegram webhook должен использовать HTTPS");
   }
-  return telegramApi<boolean>(botToken, "setWebhook", {
+  await telegramApi<boolean>(botToken, "setWebhook", {
     url: url.toString(),
     secret_token: await deriveTelegramWebhookSecret(botToken),
     allowed_updates: ["message"],
     drop_pending_updates: false,
   });
+  await Promise.all([
+    telegramApi<boolean>(botToken, "setMyCommands", {
+      commands: [
+        {
+          command: "start",
+          description: "Подключить уведомления CarPulse",
+        },
+        {
+          command: "stop",
+          description: "Отключить уведомления",
+        },
+      ],
+    }),
+    telegramApi<boolean>(botToken, "setMyDescription", {
+      description:
+        "CarPulse сообщает о новых автомобилях, которые подошли под ваши радары. Подключение выполняется одноразовым кодом из настроек аккаунта.",
+    }),
+    telegramApi<boolean>(botToken, "setMyShortDescription", {
+      short_description:
+        "Новые автомобили по вашим радарам — сразу в Telegram.",
+    }),
+  ]);
+  return getTelegramWebhookInfo(botToken);
 }
 
 export async function sendTelegramText(

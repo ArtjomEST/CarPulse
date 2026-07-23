@@ -382,6 +382,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .bot-admin-state { display: flex; align-items: center; gap: 10px; padding: var(--space-md) 0 var(--space-lg); border-top: 1px solid var(--line); }
 .bot-admin-state > div { display: grid; gap: 2px; }
 .bot-admin-state small { color: var(--muted); }
+.bot-admin-state .settings-inline-error { color: #8f2c32; }
 .settings-full-button { width: 100%; }
 .account-security form { display: grid; grid-template-columns: repeat(3, 1fr) auto; align-items: end; gap: var(--space-md); }
 .account-security label { display: grid; gap: 6px; font-size: 13px; font-weight: 750; }
