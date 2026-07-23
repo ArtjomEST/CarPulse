@@ -13,6 +13,9 @@ export type AuthorizedAuto24Record = {
   mileageKm?: number | null;
   fuel?: string | null;
   transmission?: string | null;
+  bodyType?: string | null;
+  drivetrain?: string | null;
+  powerKw?: number | null;
   location?: string | null;
   imageUrl?: string | null;
 };
@@ -46,6 +49,9 @@ export function normalizeAuthorizedAuto24Record(record: AuthorizedAuto24Record):
     mileageKm: finiteInteger(record.mileageKm),
     fuel: clean(record.fuel),
     transmission: clean(record.transmission),
+    bodyType: clean(record.bodyType),
+    drivetrain: clean(record.drivetrain),
+    powerKw: finiteInteger(record.powerKw),
     location: clean(record.location),
     imageUrl: clean(record.imageUrl),
     raw: record,

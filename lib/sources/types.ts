@@ -10,21 +10,31 @@ export type NormalizedListing = {
   mileageKm: number | null;
   fuel: string | null;
   transmission: string | null;
+  bodyType?: string | null;
+  drivetrain?: string | null;
+  powerKw?: number | null;
   location: string | null;
   imageUrl: string | null;
   raw: unknown;
 };
 
 export type RadarQuery = {
+  catalogMakeId?: string;
+  catalogModelId?: string;
   make?: string;
   model?: string;
   priceMin?: number;
   priceMax?: number;
   yearMin?: number;
   yearMax?: number;
+  mileageMin?: number;
   mileageMax?: number;
+  powerMin?: number;
+  powerMax?: number;
   fuel?: string;
   transmission?: string;
+  bodyType?: string;
+  drivetrain?: string;
   location?: string;
 };
 

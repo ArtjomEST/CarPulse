@@ -48,16 +48,41 @@ type Listing = {
 };
 
 type RadarFilters = {
+  catalogMakeId?: string;
+  catalogModelId?: string;
   make?: string;
   model?: string;
   priceMin?: number;
   priceMax?: number;
   yearMin?: number;
   yearMax?: number;
+  mileageMin?: number;
   mileageMax?: number;
+  powerMin?: number;
+  powerMax?: number;
   fuel?: string;
   transmission?: string;
+  bodyType?: string;
+  drivetrain?: string;
   location?: string;
+};
+
+type CatalogOption = {
+  id: string;
+  name: string;
+};
+
+type FilterOption = {
+  value: string;
+  label: string;
+};
+
+type CatalogFilters = {
+  fuels: FilterOption[];
+  transmissions: FilterOption[];
+  bodyTypes: FilterOption[];
+  drivetrains: FilterOption[];
+  locations: FilterOption[];
 };
 
 type Radar = {
@@ -341,11 +366,12 @@ export function CarPulseApp() {
       if (!response.ok || !payload.radar) {
         throw new Error(payload.error || "Не удалось создать радар");
       }
+      const createdRadar = payload.radar;
       setRadars((current) => [
         {
-          ...payload.radar,
-          matches: payload.radar.matches || 0,
-          filters: payload.radar.filters || {},
+          ...createdRadar,
+          matches: createdRadar.matches || 0,
+          filters: createdRadar.filters || {},
           lastSeen: "ожидает ближайшей проверки",
         },
         ...current,
@@ -837,9 +863,23 @@ function RadarModal({
   const [step, setStep] = useState(1);
   const [sources, setSources] = useState(["Auto24"]);
   const [name, setName] = useState("");
+  const [makeId, setMakeId] = useState("");
   const [make, setMake] = useState("");
+  const [modelId, setModelId] = useState("");
   const [model, setModel] = useState("");
   const [filters, setFilters] = useState<RadarFilters>({});
+  const [makes, setMakes] = useState<CatalogOption[]>([]);
+  const [models, setModels] = useState<CatalogOption[]>([]);
+  const [filterOptions, setFilterOptions] = useState<CatalogFilters>({
+    fuels: [],
+    transmissions: [],
+    bodyTypes: [],
+    drivetrains: [],
+    locations: [],
+  });
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -851,16 +891,90 @@ function RadarModal({
     };
   }, [onClose]);
 
-  function toggleSource(source: string) {
-    setSources((current) => current.includes(source) ? current.filter((item) => item !== source) : [...current, source]);
-  }
+  useEffect(() => {
+    let active = true;
+    async function loadMakes() {
+      setCatalogLoading(true);
+      setCatalogError("");
+      try {
+        const response = await fetch(
+          `/api/catalog?sources=${encodeURIComponent(sources.join(","))}`,
+        );
+        const payload = (await response.json()) as {
+          error?: string;
+          makes?: CatalogOption[];
+          filters?: CatalogFilters;
+        };
+        if (!response.ok) throw new Error(payload.error || "Не удалось загрузить марки");
+        if (!active) return;
+        const nextMakes = payload.makes || [];
+        setMakes(nextMakes);
+        if (payload.filters) setFilterOptions(payload.filters);
+        if (makeId && !nextMakes.some((item) => item.id === makeId)) {
+          setMakeId("");
+          setMake("");
+          setModelId("");
+          setModel("");
+        }
+      } catch (error) {
+        if (active) {
+          setCatalogError(error instanceof Error ? error.message : "Каталог недоступен");
+        }
+      } finally {
+        if (active) setCatalogLoading(false);
+      }
+    }
+    loadMakes();
+    return () => {
+      active = false;
+    };
+  }, [sources, makeId]);
 
-  function setNumberFilter(key: keyof RadarFilters, value: string) {
-    const parsed = Number(value.replace(/\s/g, ""));
-    setFilters((current) => ({
-      ...current,
-      [key]: value && Number.isFinite(parsed) ? parsed : undefined,
-    }));
+  useEffect(() => {
+    let active = true;
+    async function loadModels() {
+      if (!makeId || !sources.length) {
+        setModels([]);
+        return;
+      }
+      setModelsLoading(true);
+      setCatalogError("");
+      try {
+        const response = await fetch(
+          `/api/catalog?make=${encodeURIComponent(makeId)}&sources=${encodeURIComponent(sources.join(","))}`,
+        );
+        const payload = (await response.json()) as {
+          error?: string;
+          models?: CatalogOption[];
+        };
+        if (!response.ok) throw new Error(payload.error || "Не удалось загрузить модели");
+        if (!active) return;
+        const nextModels = payload.models || [];
+        setModels(nextModels);
+        if (modelId && !nextModels.some((item) => item.id === modelId)) {
+          setModelId("");
+          setModel("");
+        }
+      } catch (error) {
+        if (active) {
+          setModels([]);
+          setCatalogError(error instanceof Error ? error.message : "Модели недоступны");
+        }
+      } finally {
+        if (active) setModelsLoading(false);
+      }
+    }
+    loadModels();
+    return () => {
+      active = false;
+    };
+  }, [makeId, modelId, sources]);
+
+  function toggleSource(source: string) {
+    setSources((current) => {
+      if (!current.includes(source)) return [...current, source];
+      return current.length === 1 ? current : current.filter((item) => item !== source);
+    });
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -868,14 +982,22 @@ function RadarModal({
     const title = name.trim() || [make, model].filter(Boolean).join(" ") || "Новый радар";
     const radarFilters = {
       ...filters,
-      make: make.trim() || undefined,
-      model: model.trim() || undefined,
+      catalogMakeId: makeId || undefined,
+      catalogModelId: modelId || undefined,
+      make: make || undefined,
+      model: model || undefined,
     };
     const queryParts = [
       [make, model].filter(Boolean).join(" ") || "Все марки",
-      radarFilters.yearMin ? `от ${radarFilters.yearMin}` : "",
-      radarFilters.priceMax ? `до ${formatNumber(radarFilters.priceMax)} €` : "",
-      radarFilters.mileageMax ? `до ${formatNumber(radarFilters.mileageMax)} км` : "",
+      radarFilters.yearMin || radarFilters.yearMax
+        ? `${radarFilters.yearMin || "…"}–${radarFilters.yearMax || "…"} г.`
+        : "",
+      radarFilters.priceMin || radarFilters.priceMax
+        ? `${radarFilters.priceMin ? formatNumber(radarFilters.priceMin) : "0"}–${radarFilters.priceMax ? formatNumber(radarFilters.priceMax) : "…"} €`
+        : "",
+      radarFilters.mileageMin || radarFilters.mileageMax
+        ? `${radarFilters.mileageMin ? formatNumber(radarFilters.mileageMin) : "0"}–${radarFilters.mileageMax ? formatNumber(radarFilters.mileageMax) : "…"} км`
+        : "",
     ].filter(Boolean);
     onCreate({
       name: title,
@@ -886,35 +1008,39 @@ function RadarModal({
     });
   }
 
+  const rangeInvalid =
+    (filters.priceMin != null && filters.priceMax != null && filters.priceMin > filters.priceMax) ||
+    (filters.yearMin != null && filters.yearMax != null && filters.yearMin > filters.yearMax) ||
+    (filters.mileageMin != null && filters.mileageMax != null && filters.mileageMin > filters.mileageMax) ||
+    (filters.powerMin != null && filters.powerMax != null && filters.powerMin > filters.powerMax);
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="radar-modal" role="dialog" aria-modal="true" aria-labelledby="radar-modal-title">
         <header className="modal-header">
-          <div><p>Новый радар · шаг {step} из 2</p><h2 id="radar-modal-title">{step === 1 ? "Что будем искать?" : "Где искать и как назвать?"}</h2></div>
+          <div>
+            <p>Новый радар · шаг {step} из 3</p>
+            <h2 id="radar-modal-title">
+              {step === 1
+                ? "Площадки и автомобиль"
+                : step === 2
+                  ? "Диапазоны поиска"
+                  : "Дополнительные параметры"}
+            </h2>
+          </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Закрыть"><X size={22} /></button>
         </header>
-        <div className="step-bar"><span className="complete" /><span className={step === 2 ? "complete" : ""} /></div>
+        <div className="step-bar">
+          <span className="complete" />
+          <span className={step >= 2 ? "complete" : ""} />
+          <span className={step >= 3 ? "complete" : ""} />
+        </div>
         <form onSubmit={submit}>
           {step === 1 ? (
             <div className="modal-content">
-              <div className="form-grid">
-                <Field label="Марка" htmlFor="make"><input id="make" name="make" list="makes" value={make} onChange={(event) => setMake(event.target.value)} placeholder="Например, BMW" /><datalist id="makes"><option value="BMW" /><option value="Mercedes-Benz" /><option value="Audi" /><option value="Volkswagen" /><option value="Volvo" /><option value="Toyota" /></datalist></Field>
-                <Field label="Модель" htmlFor="model"><input id="model" name="model" value={model} onChange={(event) => setModel(event.target.value)} placeholder="Например, 5 Series" /></Field>
-                <Field label="Цена от" htmlFor="priceMin"><div className="input-suffix"><input id="priceMin" name="priceMin" inputMode="numeric" value={filters.priceMin ?? ""} onChange={(event) => setNumberFilter("priceMin", event.target.value)} placeholder="10 000" /><span>€</span></div></Field>
-                <Field label="Цена до" htmlFor="priceMax"><div className="input-suffix"><input id="priceMax" name="priceMax" inputMode="numeric" value={filters.priceMax ?? ""} onChange={(event) => setNumberFilter("priceMax", event.target.value)} placeholder="30 000" /><span>€</span></div></Field>
-                <Field label="Год от" htmlFor="yearMin"><input id="yearMin" name="yearMin" inputMode="numeric" value={filters.yearMin ?? ""} onChange={(event) => setNumberFilter("yearMin", event.target.value)} placeholder="2018" /></Field>
-                <Field label="Пробег до" htmlFor="mileageMax"><div className="input-suffix"><input id="mileageMax" name="mileageMax" inputMode="numeric" value={filters.mileageMax ?? ""} onChange={(event) => setNumberFilter("mileageMax", event.target.value)} placeholder="180 000" /><span>км</span></div></Field>
-                <Field label="Топливо" htmlFor="fuel"><div className="select-wrap"><select id="fuel" name="fuel" value={filters.fuel ?? ""} onChange={(event) => setFilters((current) => ({ ...current, fuel: event.target.value || undefined }))}><option value="">Любое</option><option>Дизель</option><option>Бензин</option><option>Гибрид</option><option>Электро</option></select><ChevronDown size={18} /></div></Field>
-                <Field label="Коробка передач" htmlFor="gearbox"><div className="select-wrap"><select id="gearbox" name="gearbox" value={filters.transmission ?? ""} onChange={(event) => setFilters((current) => ({ ...current, transmission: event.target.value || undefined }))}><option value="">Любая</option><option>Автомат</option><option>Механика</option></select><ChevronDown size={18} /></div></Field>
-              </div>
-              <button className="advanced-link" type="button"><Plus size={17} /> Добавить кузов, мощность и город</button>
-            </div>
-          ) : (
-            <div className="modal-content">
-              <Field label="Название радара" htmlFor="radarName" hint="Так он будет отображаться в кабинете и Telegram."><input id="radarName" name="radarName" value={name} onChange={(event) => setName(event.target.value)} placeholder={make ? `${make} ${model}`.trim() : "Например, BMW 5 до 30 000 €"} /></Field>
               <fieldset className="source-fieldset">
                 <legend>Площадки</legend>
-                <p>Выберите одну или несколько. Вписывать ссылки не нужно.</p>
+                <p>Каталог марки и модели обновится под выбранные источники.</p>
                 <div className="source-options">
                   {["Auto24", "SS.lv", "Nettiauto", "mobile.de"].map((source) => (
                     <label className={`source-option ${sources.includes(source) ? "selected" : ""}`} key={source}>
@@ -925,12 +1051,126 @@ function RadarModal({
                   ))}
                 </div>
               </fieldset>
+              <div className="form-grid catalog-fields">
+                <Field label="Марка" htmlFor="make" hint={catalogLoading ? "Загружаем каталог…" : `${makes.length} марок в выбранных площадках`}>
+                  <div className="select-wrap">
+                    <select
+                      id="make"
+                      name="make"
+                      value={makeId}
+                      disabled={!sources.length || catalogLoading}
+                      onChange={(event) => {
+                        const selected = makes.find((item) => item.id === event.target.value);
+                        setMakeId(selected?.id || "");
+                        setMake(selected?.name || "");
+                        setModelId("");
+                        setModel("");
+                      }}
+                    >
+                      <option value="">Любая марка</option>
+                      {makes.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+                    </select>
+                    <ChevronDown size={18} />
+                  </div>
+                </Field>
+                <Field label="Модель" htmlFor="model" hint={makeId ? (modelsLoading ? "Загружаем модели…" : `${models.length} вариантов`) : "Сначала выберите марку"}>
+                  <div className="select-wrap">
+                    <select
+                      id="model"
+                      name="model"
+                      value={modelId}
+                      disabled={!makeId || modelsLoading}
+                      onChange={(event) => {
+                        const selected = models.find((item) => item.id === event.target.value);
+                        setModelId(selected?.id || "");
+                        setModel(selected?.name || "");
+                      }}
+                    >
+                      <option value="">Любая модель</option>
+                      {models.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+                    </select>
+                    <ChevronDown size={18} />
+                  </div>
+                </Field>
+              </div>
+              {catalogError && <p className="form-error" role="alert">{catalogError}</p>}
+              <p className="catalog-note">
+                Марка и модель выбираются только из каталога. Ссылки и названия вручную вводить не нужно.
+              </p>
+            </div>
+          ) : step === 2 ? (
+            <div className="modal-content range-grid">
+              <RangeFilter
+                label="Цена"
+                min={0}
+                max={200000}
+                step={500}
+                minValue={filters.priceMin}
+                maxValue={filters.priceMax}
+                onMinChange={(value) => setFilters((current) => ({ ...current, priceMin: value }))}
+                onMaxChange={(value) => setFilters((current) => ({ ...current, priceMax: value }))}
+                suffix="€"
+                format={formatNumber}
+              />
+              <RangeFilter
+                label="Год выпуска"
+                min={1980}
+                max={new Date().getFullYear() + 1}
+                step={1}
+                minValue={filters.yearMin}
+                maxValue={filters.yearMax}
+                onMinChange={(value) => setFilters((current) => ({ ...current, yearMin: value }))}
+                onMaxChange={(value) => setFilters((current) => ({ ...current, yearMax: value }))}
+                format={String}
+              />
+              <RangeFilter
+                label="Пробег"
+                min={0}
+                max={500000}
+                step={5000}
+                minValue={filters.mileageMin}
+                maxValue={filters.mileageMax}
+                onMinChange={(value) => setFilters((current) => ({ ...current, mileageMin: value }))}
+                onMaxChange={(value) => setFilters((current) => ({ ...current, mileageMax: value }))}
+                suffix="км"
+                format={formatNumber}
+              />
+              <RangeFilter
+                label="Мощность"
+                min={0}
+                max={500}
+                step={5}
+                minValue={filters.powerMin}
+                maxValue={filters.powerMax}
+                onMinChange={(value) => setFilters((current) => ({ ...current, powerMin: value }))}
+                onMaxChange={(value) => setFilters((current) => ({ ...current, powerMax: value }))}
+                suffix="кВт"
+                format={formatNumber}
+              />
+              {rangeInvalid && <p className="form-error range-error" role="alert">Значение «от» не может быть больше значения «до».</p>}
+            </div>
+          ) : (
+            <div className="modal-content">
+              <div className="form-grid">
+                <OptionField id="fuel" label="Топливо" emptyLabel="Любое" value={filters.fuel} options={filterOptions.fuels} onChange={(value) => setFilters((current) => ({ ...current, fuel: value }))} />
+                <OptionField id="gearbox" label="Коробка передач" emptyLabel="Любая" value={filters.transmission} options={filterOptions.transmissions} onChange={(value) => setFilters((current) => ({ ...current, transmission: value }))} />
+                <OptionField id="bodyType" label="Кузов" emptyLabel="Любой" value={filters.bodyType} options={filterOptions.bodyTypes} onChange={(value) => setFilters((current) => ({ ...current, bodyType: value }))} />
+                <OptionField id="drivetrain" label="Привод" emptyLabel="Любой" value={filters.drivetrain} options={filterOptions.drivetrains} onChange={(value) => setFilters((current) => ({ ...current, drivetrain: value }))} />
+                <OptionField id="location" label="Город или регион" emptyLabel="Неважно" value={filters.location} options={filterOptions.locations} onChange={(value) => setFilters((current) => ({ ...current, location: value }))} />
+                <Field label="Название радара" htmlFor="radarName" hint="Будет видно в кабинете и Telegram.">
+                  <input id="radarName" name="radarName" value={name} onChange={(event) => setName(event.target.value)} placeholder={make ? `${make} ${model}`.trim() : "Например, авто до 30 000 €"} />
+                </Field>
+              </div>
               <label className="telegram-toggle"><span><Bell size={20} /><span><strong>Уведомлять в Telegram</strong><small>Когда Telegram будет подключён</small></span></span><input type="checkbox" defaultChecked /></label>
             </div>
           )}
           <footer className="modal-footer">
-            <button className="secondary-button" type="button" onClick={step === 1 ? onClose : () => setStep(1)}>{step === 1 ? "Отмена" : "Назад"}</button>
-            {step === 1 ? <button className="primary-button" type="button" onClick={() => setStep(2)}>Продолжить</button> : <button className="primary-button" type="submit" disabled={!sources.length}>Создать радар</button>}
+            <button className="secondary-button" type="button" onClick={step === 1 ? onClose : () => setStep((current) => current - 1)}>{step === 1 ? "Отмена" : "Назад"}</button>
+            {step < 3 ? (
+              <button className="primary-button" type="button" onClick={() => setStep((current) => current + 1)} disabled={!sources.length || catalogLoading || rangeInvalid}>Продолжить</button>
+            ) : (
+              <button className="primary-button" type="submit" disabled={!sources.length || rangeInvalid}>Создать радар</button>
+            )}
           </footer>
         </form>
       </section>
@@ -940,4 +1180,136 @@ function RadarModal({
 
 function Field({ label, htmlFor, hint, children }: { label: string; htmlFor: string; hint?: string; children: React.ReactNode }) {
   return <label className="field" htmlFor={htmlFor}><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
+}
+
+function OptionField({
+  id,
+  label,
+  emptyLabel,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  emptyLabel: string;
+  value?: string;
+  options: FilterOption[];
+  onChange: (value?: string) => void;
+}) {
+  return (
+    <Field label={label} htmlFor={id}>
+      <div className="select-wrap">
+        <select id={id} value={value || ""} onChange={(event) => onChange(event.target.value || undefined)}>
+          <option value="">{emptyLabel}</option>
+          {options.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+        </select>
+        <ChevronDown size={18} />
+      </div>
+    </Field>
+  );
+}
+
+function RangeFilter({
+  label,
+  min,
+  max,
+  step,
+  minValue,
+  maxValue,
+  onMinChange,
+  onMaxChange,
+  suffix,
+  format,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  minValue?: number;
+  maxValue?: number;
+  onMinChange: (value?: number) => void;
+  onMaxChange: (value?: number) => void;
+  suffix?: string;
+  format: (value: number) => string;
+}) {
+  const lower = minValue ?? min;
+  const upper = maxValue ?? max;
+  const lowerPercent = ((lower - min) / (max - min)) * 100;
+  const upperPercent = ((upper - min) / (max - min)) * 100;
+
+  function parse(value: string) {
+    if (!value.trim()) return undefined;
+    const parsed = Number(value.replace(/\s/g, ""));
+    return Number.isFinite(parsed) ? Math.round(parsed) : undefined;
+  }
+
+  return (
+    <fieldset className="range-filter">
+      <legend>{label}</legend>
+      <div className="range-number-row">
+        <label>
+          <span>От</span>
+          <div className="input-suffix">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={min}
+              max={max}
+              step={step}
+              value={minValue ?? ""}
+              onChange={(event) => onMinChange(parse(event.target.value))}
+              placeholder={format(min)}
+              aria-label={`${label}, от`}
+            />
+            {suffix && <span>{suffix}</span>}
+          </div>
+        </label>
+        <label>
+          <span>До</span>
+          <div className="input-suffix">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={min}
+              max={max}
+              step={step}
+              value={maxValue ?? ""}
+              onChange={(event) => onMaxChange(parse(event.target.value))}
+              placeholder={format(max)}
+              aria-label={`${label}, до`}
+            />
+            {suffix && <span>{suffix}</span>}
+          </div>
+        </label>
+      </div>
+      <div
+        className="dual-range"
+        style={{
+          "--range-start": `${lowerPercent}%`,
+          "--range-end": `${upperPercent}%`,
+        } as React.CSSProperties}
+      >
+        <span className="dual-range-track" />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={lower}
+          aria-label={`${label}, нижняя граница`}
+          onChange={(event) => onMinChange(Math.min(Number(event.target.value), upper))}
+        />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={upper}
+          aria-label={`${label}, верхняя граница`}
+          onChange={(event) => onMaxChange(Math.max(Number(event.target.value), lower))}
+        />
+      </div>
+    </fieldset>
+  );
 }

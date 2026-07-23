@@ -268,15 +268,22 @@ function normalizeFilters(filters?: RadarQuery): RadarQuery {
       ? Math.round(value)
       : undefined;
   return {
+    catalogMakeId: text(filters?.catalogMakeId),
+    catalogModelId: text(filters?.catalogModelId),
     make: text(filters?.make),
     model: text(filters?.model),
     priceMin: integer(filters?.priceMin),
     priceMax: integer(filters?.priceMax),
     yearMin: integer(filters?.yearMin),
     yearMax: integer(filters?.yearMax),
+    mileageMin: integer(filters?.mileageMin),
     mileageMax: integer(filters?.mileageMax),
+    powerMin: integer(filters?.powerMin),
+    powerMax: integer(filters?.powerMax),
     fuel: text(filters?.fuel),
     transmission: text(filters?.transmission),
+    bodyType: text(filters?.bodyType),
+    drivetrain: text(filters?.drivetrain),
     location: text(filters?.location),
   };
 }
@@ -284,9 +291,15 @@ function normalizeFilters(filters?: RadarQuery): RadarQuery {
 function describeFilters(filters: RadarQuery) {
   const vehicle = [filters.make, filters.model].filter(Boolean).join(" ") || "Все марки";
   const parts = [vehicle];
-  if (filters.yearMin) parts.push(`от ${filters.yearMin}`);
-  if (filters.priceMax) parts.push(`до ${filters.priceMax} €`);
-  if (filters.mileageMax) parts.push(`до ${filters.mileageMax} км`);
+  if (filters.yearMin || filters.yearMax) {
+    parts.push(`${filters.yearMin || "…"}–${filters.yearMax || "…"}`);
+  }
+  if (filters.priceMin || filters.priceMax) {
+    parts.push(`${filters.priceMin || 0}–${filters.priceMax || "…"} €`);
+  }
+  if (filters.mileageMin || filters.mileageMax) {
+    parts.push(`${filters.mileageMin || 0}–${filters.mileageMax || "…"} км`);
+  }
   return parts.join(" · ");
 }
 
