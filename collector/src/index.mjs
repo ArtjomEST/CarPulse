@@ -7,6 +7,7 @@ const DEFAULT_PROFILE_DIR = "/data/chrome-profile";
 
 const baseUrl = requiredEnvironment("CARPULSE_BASE_URL").replace(/\/+$/, "");
 const collectorSecret = requiredEnvironment("AUTO24_COLLECTOR_SECRET");
+const sitesBypassToken = process.env.CARPULSE_SITES_BYPASS_TOKEN?.trim();
 const collectorEndpoint = `${baseUrl}/api/sources/auto24/collector`;
 const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || DEFAULT_CHROME_PATH;
 const profileDirectory = process.env.AUTO24_PROFILE_DIR || DEFAULT_PROFILE_DIR;
@@ -180,10 +181,9 @@ async function collectOnce() {
 
 async function fetchConfiguration() {
   const response = await fetch(collectorEndpoint, {
-    headers: {
+    headers: collectorHeaders({
       Accept: "application/json",
-      Authorization: `Bearer ${collectorSecret}`,
-    },
+    }),
   });
   const payload = await response.json();
   if (!response.ok) {
@@ -197,11 +197,10 @@ async function fetchConfiguration() {
 async function reportRun(payload) {
   const response = await fetch(collectorEndpoint, {
     method: "POST",
-    headers: {
+    headers: collectorHeaders({
       Accept: "application/json",
-      Authorization: `Bearer ${collectorSecret}`,
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify(payload),
   });
   const result = await response.json();
@@ -214,6 +213,18 @@ async function reportRun(payload) {
     );
   }
   return result;
+}
+
+function collectorHeaders(headers = {}) {
+  return {
+    ...headers,
+    Authorization: `Bearer ${collectorSecret}`,
+    ...(sitesBypassToken
+      ? {
+          "OAI-Sites-Authorization": `Bearer ${sitesBypassToken}`,
+        }
+      : {}),
+  };
 }
 
 async function openAuto24Page(page, url, allowEmptyResults) {

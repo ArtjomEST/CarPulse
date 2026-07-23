@@ -51,6 +51,11 @@ npm run dev:server
 npm run dev:cron -- --now
 ```
 
+Для временной передачи локально собранных объявлений в закрытый production
+планировщику можно передать `CARPULSE_PRODUCTION_URL`,
+`CARPULSE_PRODUCTION_COLLECTOR_SECRET` и `CARPULSE_SITES_BYPASS_TOKEN`. В
+постоянной схеме те же секреты использует контейнер `collector/` на VPS.
+
 Проверка production-сборки:
 
 ```bash
