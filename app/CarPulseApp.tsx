@@ -31,6 +31,7 @@ type View = "overview" | "radars" | "vehicles" | "favorites" | "settings";
 
 type Listing = {
   id: number;
+  url: string;
   title: string;
   price: number;
   year: number;
@@ -46,6 +47,19 @@ type Listing = {
   goodPrice?: boolean;
 };
 
+type RadarFilters = {
+  make?: string;
+  model?: string;
+  priceMin?: number;
+  priceMax?: number;
+  yearMin?: number;
+  yearMax?: number;
+  mileageMax?: number;
+  fuel?: string;
+  transmission?: string;
+  location?: string;
+};
+
 type Radar = {
   id: number;
   name: string;
@@ -54,122 +68,14 @@ type Radar = {
   matches: number;
   enabled: boolean;
   lastSeen: string;
+  filters: RadarFilters;
 };
 
-const listings: Listing[] = [
-  {
-    id: 1,
-    title: "BMW 530d xDrive M Sport",
-    price: 26900,
-    year: 2019,
-    mileage: "148 000 км",
-    fuel: "Дизель",
-    power: "195 кВт",
-    transmission: "Автомат",
-    location: "Tallinn, Эстония",
-    source: "Auto24",
-    age: "2 минуты назад",
-    radar: "BMW 5 до 30 000 €",
-    image:
-      "https://images.unsplash.com/photo-1555215695-3004980ad54e?auto=format&fit=crop&w=900&q=82",
-    goodPrice: true,
-  },
-  {
-    id: 2,
-    title: "Mercedes-Benz E 220 d Avantgarde",
-    price: 23950,
-    year: 2018,
-    mileage: "172 400 км",
-    fuel: "Дизель",
-    power: "143 кВт",
-    transmission: "Автомат",
-    location: "Riga, Латвия",
-    source: "SS.lv",
-    age: "6 минут назад",
-    radar: "E-класс дизель",
-    image:
-      "https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?auto=format&fit=crop&w=900&q=82",
-  },
-  {
-    id: 3,
-    title: "Volkswagen Transporter 2.0 TDI",
-    price: 18700,
-    year: 2020,
-    mileage: "204 000 км",
-    fuel: "Дизель",
-    power: "110 кВт",
-    transmission: "Механика",
-    location: "Tampere, Финляндия",
-    source: "Nettiauto",
-    age: "11 минут назад",
-    radar: "Коммерческие до 20 000 €",
-    image:
-      "https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=900&q=82",
-    goodPrice: true,
-  },
-  {
-    id: 4,
-    title: "Volvo XC60 B4 AWD Momentum",
-    price: 32500,
-    year: 2021,
-    mileage: "116 800 км",
-    fuel: "Дизель-гибрид",
-    power: "145 кВт",
-    transmission: "Автомат",
-    location: "Hamburg, Германия",
-    source: "mobile.de",
-    age: "18 минут назад",
-    radar: "SUV 2020+",
-    image:
-      "https://images.unsplash.com/photo-1494905998402-395d579af36f?auto=format&fit=crop&w=900&q=82",
-  },
-  {
-    id: 5,
-    title: "Audi A6 Avant 40 TDI quattro",
-    price: 28900,
-    year: 2020,
-    mileage: "139 200 км",
-    fuel: "Дизель",
-    power: "150 кВт",
-    transmission: "Автомат",
-    location: "Helsinki, Финляндия",
-    source: "Nettiauto",
-    age: "24 минуты назад",
-    radar: "Универсалы до 30 000 €",
-    image:
-      "https://images.unsplash.com/photo-1606664515524-ed2f786a0bd6?auto=format&fit=crop&w=900&q=82",
-  },
-];
-
-const initialRadars: Radar[] = [
-  {
-    id: 1,
-    name: "BMW 5 до 30 000 €",
-    query: "BMW 5 Series · 2018–2022 · до 180 000 км",
-    sources: ["Auto24", "mobile.de", "Nettiauto"],
-    matches: 8,
-    enabled: true,
-    lastSeen: "проверено 1 мин. назад",
-  },
-  {
-    id: 2,
-    name: "Коммерческие до 20 000 €",
-    query: "Transporter, Transit · дизель · 2017+",
-    sources: ["Auto24", "SS.lv", "Nettiauto"],
-    matches: 3,
-    enabled: true,
-    lastSeen: "проверено 3 мин. назад",
-  },
-  {
-    id: 3,
-    name: "SUV 2020+",
-    query: "Volvo XC60, BMW X3 · автомат · от 2020",
-    sources: ["mobile.de", "Auto24"],
-    matches: 5,
-    enabled: true,
-    lastSeen: "проверено 4 мин. назад",
-  },
-];
+type SourceState = {
+  status: "success" | "blocked" | "failed" | "waiting";
+  label: string;
+  checkedAt?: string | null;
+};
 
 const navigation = [
   { id: "overview" as const, label: "Обзор", icon: LayoutDashboard },
@@ -206,15 +112,158 @@ function formatPrice(price: number) {
   return new Intl.NumberFormat("ru-RU").format(price) + " €";
 }
 
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("ru-RU").format(value);
+}
+
+function relativeTime(value?: string | null) {
+  if (!value) return "совпадений пока нет";
+  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  const difference = Math.max(0, Date.now() - new Date(normalized).getTime());
+  const minutes = Math.floor(difference / 60_000);
+  if (minutes < 1) return "только что";
+  if (minutes < 60) return `${minutes} мин. назад`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ч. назад`;
+  return `${Math.floor(hours / 24)} дн. назад`;
+}
+
 export function CarPulseApp() {
   const [view, setView] = useState<View>("overview");
-  const [radars, setRadars] = useState<Radar[]>(initialRadars);
-  const [favorites, setFavorites] = useState<number[]>([3]);
+  const [radars, setRadars] = useState<Radar[]>([]);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [favorites, setFavorites] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [toast, setToast] = useState("");
   const [sourceFilter, setSourceFilter] = useState("Все площадки");
+  const [loading, setLoading] = useState(true);
+  const [sourceStates, setSourceStates] = useState<Record<string, SourceState>>({
+    Auto24: { status: "waiting", label: "Ожидает первой проверки" },
+    "SS.lv": { status: "waiting", label: "Не подключена" },
+    Nettiauto: { status: "waiting", label: "Не подключена" },
+    "mobile.de": { status: "waiting", label: "Не подключена" },
+  });
+
+  useEffect(() => {
+    let active = true;
+    async function loadDashboard() {
+      try {
+        const response = await fetch("/api/dashboard");
+        const payload = (await response.json()) as {
+          error?: string;
+          radars?: Array<{
+            id: number;
+            name: string;
+            query: string;
+            sources: string[];
+            enabled: boolean;
+            filters: RadarFilters;
+            matches: number;
+            lastMatchAt: string | null;
+          }>;
+          listings?: Array<{
+            id: number;
+            url: string;
+            title: string;
+            priceEur: number | null;
+            year: number | null;
+            mileageKm: number | null;
+            fuel: string | null;
+            transmission: string | null;
+            location: string | null;
+            imageUrl: string | null;
+            source: string;
+            matchedAt: string;
+            radarName: string;
+            powerKw: number | null;
+          }>;
+          telegram?: { connected?: number | boolean } | null;
+          sources?: Record<
+            string,
+            {
+              mode?: string;
+              lastRun?: {
+                status?: string;
+                error_message?: string | null;
+                finished_at?: string | null;
+                started_at?: string | null;
+              } | null;
+            }
+          >;
+        };
+        if (!response.ok) throw new Error(payload.error || "Не удалось загрузить данные");
+        if (!active) return;
+        setRadars(
+          (payload.radars || []).map((radar) => ({
+            id: radar.id,
+            name: radar.name,
+            query: radar.query,
+            sources: radar.sources,
+            matches: radar.matches,
+            enabled: radar.enabled,
+            filters: radar.filters || {},
+            lastSeen: radar.lastMatchAt
+              ? `совпадение ${relativeTime(radar.lastMatchAt)}`
+              : "ожидает проверки",
+          })),
+        );
+        setListings(
+          (payload.listings || []).map((listing) => ({
+            id: listing.id,
+            url: listing.url,
+            title: listing.title,
+            price: listing.priceEur || 0,
+            year: listing.year || 0,
+            mileage: listing.mileageKm ? `${formatNumber(listing.mileageKm)} км` : "Пробег не указан",
+            fuel: listing.fuel || "Топливо не указано",
+            power: listing.powerKw ? `${listing.powerKw} кВт` : "Мощность не указана",
+            transmission: listing.transmission || "Коробка не указана",
+            location: listing.location || "Эстония",
+            source: listing.source,
+            age: relativeTime(listing.matchedAt),
+            radar: listing.radarName,
+            image: listing.imageUrl || "",
+          })),
+        );
+        setTelegramConnected(Boolean(payload.telegram?.connected));
+        const auto24Run = payload.sources?.Auto24?.lastRun;
+        setSourceStates({
+          Auto24: auto24Run
+            ? {
+                status:
+                  auto24Run.status === "success"
+                    ? "success"
+                    : auto24Run.status === "blocked"
+                      ? "blocked"
+                      : "failed",
+                label:
+                  auto24Run.status === "success"
+                    ? "Работает"
+                    : auto24Run.status === "blocked"
+                      ? "Остановлена защитой"
+                      : "Ошибка проверки",
+                checkedAt: auto24Run.finished_at || auto24Run.started_at,
+              }
+            : { status: "waiting", label: "Ожидает первой проверки" },
+          "SS.lv": { status: "waiting", label: "Не подключена" },
+          Nettiauto: { status: "waiting", label: "Не подключена" },
+          "mobile.de": { status: "waiting", label: "Не подключена" },
+        });
+      } catch (error) {
+        if (active) {
+          setToast(error instanceof Error ? error.message : "Не удалось загрузить кабинет");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadDashboard();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -230,7 +279,7 @@ export function CarPulseApp() {
     return view === "favorites"
       ? sourceFiltered.filter((listing) => favorites.includes(listing.id))
       : sourceFiltered;
-  }, [favorites, sourceFilter, view]);
+  }, [favorites, listings, sourceFilter, view]);
 
   function changeView(nextView: View) {
     setView(nextView);
@@ -246,25 +295,67 @@ export function CarPulseApp() {
     );
   }
 
-  function toggleRadar(id: number) {
+  async function toggleRadar(id: number) {
+    const currentRadar = radars.find((radar) => radar.id === id);
+    if (!currentRadar) return;
+    const enabled = !currentRadar.enabled;
     setRadars((current) =>
-      current.map((radar) =>
-        radar.id === id ? { ...radar, enabled: !radar.enabled } : radar,
-      ),
+      current.map((radar) => (radar.id === id ? { ...radar, enabled } : radar)),
     );
+    try {
+      const response = await fetch("/api/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_radar", id, enabled }),
+      });
+      if (!response.ok) throw new Error("Не удалось изменить радар");
+    } catch {
+      setRadars((current) =>
+        current.map((radar) =>
+          radar.id === id ? { ...radar, enabled: currentRadar.enabled } : radar,
+        ),
+      );
+      setToast("Не удалось изменить радар. Попробуйте ещё раз.");
+    }
   }
 
-  function createRadar(radar: Radar) {
-    setRadars((current) => [radar, ...current]);
-    setModalOpen(false);
-    setView("radars");
-    setToast("Радар создан. Первая проверка уже запущена.");
-
-    fetch("/api/dashboard", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "create_radar", radar }),
-    }).catch(() => undefined);
+  async function createRadar(radar: Omit<Radar, "id" | "matches" | "lastSeen">) {
+    try {
+      const response = await fetch("/api/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create_radar", radar }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        radar?: {
+          id: number;
+          name: string;
+          query: string;
+          sources: string[];
+          enabled: boolean;
+          filters: RadarFilters;
+          matches: number;
+        };
+      };
+      if (!response.ok || !payload.radar) {
+        throw new Error(payload.error || "Не удалось создать радар");
+      }
+      setRadars((current) => [
+        {
+          ...payload.radar,
+          matches: payload.radar.matches || 0,
+          filters: payload.radar.filters || {},
+          lastSeen: "ожидает ближайшей проверки",
+        },
+        ...current,
+      ]);
+      setModalOpen(false);
+      setView("radars");
+      setToast("Радар сохранён. Auto24 проверяется каждые 30 минут.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Не удалось создать радар");
+    }
   }
 
   const copy = viewCopy[view];
@@ -373,6 +464,8 @@ export function CarPulseApp() {
               onFavorite={toggleFavorite}
               onCreate={() => setModalOpen(true)}
               onViewRadars={() => changeView("radars")}
+              loading={loading}
+              sourceStates={sourceStates}
             />
           )}
 
@@ -428,6 +521,8 @@ function Overview({
   onFavorite,
   onCreate,
   onViewRadars,
+  loading,
+  sourceStates,
 }: {
   radars: Radar[];
   listings: Listing[];
@@ -437,6 +532,8 @@ function Overview({
   onFavorite: (id: number) => void;
   onCreate: () => void;
   onViewRadars: () => void;
+  loading: boolean;
+  sourceStates: Record<string, SourceState>;
 }) {
   return (
     <>
@@ -449,18 +546,36 @@ function Overview({
             <SourceSelect value={sourceFilter} onChange={setSourceFilter} />
           </div>
           <div className="listing-stack">
-            {listings.slice(0, 4).map((listing) => (
-              <ListingCard
-                key={listing.id}
-                listing={listing}
-                favorite={favorites.includes(listing.id)}
-                onFavorite={onFavorite}
-              />
-            ))}
+            {loading ? (
+              <div className="feed-empty compact">
+                <RefreshCw size={24} className="loading-icon" />
+                <strong>Загружаем автомобили</strong>
+              </div>
+            ) : listings.length ? (
+              listings.slice(0, 4).map((listing) => (
+                <ListingCard
+                  key={listing.id}
+                  listing={listing}
+                  favorite={favorites.includes(listing.id)}
+                  onFavorite={onFavorite}
+                />
+              ))
+            ) : (
+              <div className="feed-empty">
+                <span><CarFront size={27} /></span>
+                <h3>Совпадений пока нет</h3>
+                <p>Создайте радар. Новые объявления Auto24 появятся здесь после ближайшей проверки.</p>
+                <button className="primary-button" type="button" onClick={onCreate}>
+                  <Plus size={18} /> Создать радар
+                </button>
+              </div>
+            )}
           </div>
-          <button className="wide-secondary-button" type="button">
-            Показать все автомобили
-          </button>
+          {listings.length > 0 && (
+            <button className="wide-secondary-button" type="button">
+              Показать все автомобили
+            </button>
+          )}
         </section>
 
         <aside className="dashboard-aside">
@@ -505,9 +620,9 @@ function Overview({
             </div>
             {["Auto24", "SS.lv", "Nettiauto", "mobile.de"].map((source) => (
               <div className="source-health" key={source}>
-                <span className="status-dot" />
+                <span className={`status-dot status-${sourceStates[source]?.status || "waiting"}`} />
                 <strong>{source}</strong>
-                <span>Работает</span>
+                <span>{sourceStates[source]?.label || "Не подключена"}</span>
               </div>
             ))}
           </section>
@@ -573,7 +688,7 @@ function RadarsView({ radars, onToggle, onCreate }: { radars: Radar[]; onToggle:
       <div className="radar-list-header">
         <div className="info-notice">
           <BellRing size={20} />
-          <span><strong>Проверяем площадки каждые 5 минут.</strong> Новые совпадения сразу появятся в ленте.</span>
+          <span><strong>Проверяем Auto24 каждые 30 минут.</strong> Новые совпадения сразу появятся в ленте.</span>
         </div>
         <span className="radar-limit">Использовано {radars.length} из 10</span>
       </div>
@@ -643,8 +758,8 @@ function SettingsView({ connected, onConnect, onDisconnect }: { connected: boole
           <div><h2>Частота проверки</h2><p>Как часто обновлять объявления.</p></div>
         </div>
         <label className="field-label" htmlFor="frequency">Интервал</label>
-        <div className="select-wrap"><select id="frequency" defaultValue="5"><option value="5">Каждые 5 минут</option><option value="10">Каждые 10 минут</option><option value="30">Каждые 30 минут</option></select><ChevronDown size={18} /></div>
-        <p className="setting-hint">Для личного теста пяти минут достаточно, чтобы быстро замечать новые предложения.</p>
+        <div className="select-wrap"><select id="frequency" defaultValue="30" disabled><option value="30">Каждые 30 минут</option></select><ChevronDown size={18} /></div>
+        <p className="setting-hint">В MVP интервал зафиксирован, чтобы не создавать лишнюю нагрузку на Auto24.</p>
       </section>
 
       <section className="settings-card settings-wide">
@@ -654,7 +769,7 @@ function SettingsView({ connected, onConnect, onDisconnect }: { connected: boole
         </div>
         <div className="platform-list">
           {["Auto24", "SS.lv", "Nettiauto", "mobile.de"].map((source) => (
-            <div className="platform-row" key={source}><span className="platform-logo">{source.slice(0, 2).toUpperCase()}</span><div><strong>{source}</strong><small>Подключена · работает штатно</small></div><span className="platform-ok"><Check size={16} /> Активна</span></div>
+            <div className="platform-row" key={source}><span className="platform-logo">{source.slice(0, 2).toUpperCase()}</span><div><strong>{source}</strong><small>{source === "Auto24" ? "Браузерная проверка · каждые 30 минут" : "Подключение запланировано"}</small></div><span className={source === "Auto24" ? "platform-ok" : "platform-pending"}>{source === "Auto24" ? <><Check size={16} /> Включена</> : "Не подключена"}</span></div>
           ))}
         </div>
       </section>
@@ -666,29 +781,33 @@ function ListingCard({ listing, favorite, onFavorite }: { listing: Listing; favo
   return (
     <article className="listing-card">
       <div className="listing-image-wrap">
-        <Image
-          src={listing.image}
-          alt={`${listing.title}, объявление ${listing.source}`}
-          className="listing-image"
-          fill
-          sizes="(max-width: 640px) 124px, 196px"
-          unoptimized
-        />
+        {listing.image ? (
+          <Image
+            src={listing.image}
+            alt={`${listing.title}, объявление ${listing.source}`}
+            className="listing-image"
+            fill
+            sizes="(max-width: 640px) 124px, 196px"
+            unoptimized
+          />
+        ) : (
+          <span className="listing-image-placeholder"><CarFront size={32} /></span>
+        )}
         <span className="source-badge">{listing.source}</span>
       </div>
       <div className="listing-body">
         <div className="listing-title-line">
           <div><h3>{listing.title}</h3><p className="listing-location"><MapPin size={15} /> {listing.location}</p></div>
-          <div className="price-block"><strong>{formatPrice(listing.price)}</strong>{listing.goodPrice && <span>Хорошая цена</span>}</div>
+          <div className="price-block"><strong>{listing.price ? formatPrice(listing.price) : "Цена не указана"}</strong>{listing.goodPrice && <span>Хорошая цена</span>}</div>
         </div>
         <div className="spec-list" aria-label="Характеристики">
-          <span>{listing.year}</span><span>{listing.mileage}</span><span>{listing.fuel}</span><span>{listing.power}</span><span>{listing.transmission}</span>
+          <span>{listing.year || "Год не указан"}</span><span>{listing.mileage}</span><span>{listing.fuel}</span><span>{listing.power}</span><span>{listing.transmission}</span>
         </div>
         <div className="listing-footer">
           <div><span className="fresh-dot" /><strong>{listing.age}</strong><span>Радар: {listing.radar}</span></div>
           <div className="listing-actions">
             <button className={`favorite-button ${favorite ? "is-favorite" : ""}`} type="button" onClick={() => onFavorite(listing.id)} aria-label={favorite ? "Убрать из избранного" : "Добавить в избранное"}><Heart size={19} fill={favorite ? "currentColor" : "none"} /></button>
-            <a href="#" onClick={(event) => event.preventDefault()}>Открыть объявление <ExternalLink size={16} /></a>
+            <a href={listing.url} target="_blank" rel="noreferrer">Открыть объявление <ExternalLink size={16} /></a>
           </div>
         </div>
       </div>
@@ -708,12 +827,19 @@ function SourceSelect({ value, onChange }: { value: string; onChange: (source: s
   );
 }
 
-function RadarModal({ onClose, onCreate }: { onClose: () => void; onCreate: (radar: Radar) => void }) {
+function RadarModal({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (radar: Omit<Radar, "id" | "matches" | "lastSeen">) => void;
+}) {
   const [step, setStep] = useState(1);
-  const [sources, setSources] = useState(["Auto24", "SS.lv", "Nettiauto"]);
+  const [sources, setSources] = useState(["Auto24"]);
   const [name, setName] = useState("");
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
+  const [filters, setFilters] = useState<RadarFilters>({});
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -729,20 +855,34 @@ function RadarModal({ onClose, onCreate }: { onClose: () => void; onCreate: (rad
     setSources((current) => current.includes(source) ? current.filter((item) => item !== source) : [...current, source]);
   }
 
+  function setNumberFilter(key: keyof RadarFilters, value: string) {
+    const parsed = Number(value.replace(/\s/g, ""));
+    setFilters((current) => ({
+      ...current,
+      [key]: value && Number.isFinite(parsed) ? parsed : undefined,
+    }));
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const price = String(form.get("priceMax") || "любая цена");
-    const year = String(form.get("yearMin") || "любой год");
     const title = name.trim() || [make, model].filter(Boolean).join(" ") || "Новый радар";
+    const radarFilters = {
+      ...filters,
+      make: make.trim() || undefined,
+      model: model.trim() || undefined,
+    };
+    const queryParts = [
+      [make, model].filter(Boolean).join(" ") || "Все марки",
+      radarFilters.yearMin ? `от ${radarFilters.yearMin}` : "",
+      radarFilters.priceMax ? `до ${formatNumber(radarFilters.priceMax)} €` : "",
+      radarFilters.mileageMax ? `до ${formatNumber(radarFilters.mileageMax)} км` : "",
+    ].filter(Boolean);
     onCreate({
-      id: Date.now(),
       name: title,
-      query: `${[make, model].filter(Boolean).join(" ") || "Все марки"} · от ${year} · до ${price}${price.includes("€") ? "" : " €"}`,
+      query: queryParts.join(" · "),
       sources: sources.length ? sources : ["Auto24"],
-      matches: 0,
       enabled: true,
-      lastSeen: "первая проверка запущена",
+      filters: radarFilters,
     });
   }
 
@@ -760,12 +900,12 @@ function RadarModal({ onClose, onCreate }: { onClose: () => void; onCreate: (rad
               <div className="form-grid">
                 <Field label="Марка" htmlFor="make"><input id="make" name="make" list="makes" value={make} onChange={(event) => setMake(event.target.value)} placeholder="Например, BMW" /><datalist id="makes"><option value="BMW" /><option value="Mercedes-Benz" /><option value="Audi" /><option value="Volkswagen" /><option value="Volvo" /><option value="Toyota" /></datalist></Field>
                 <Field label="Модель" htmlFor="model"><input id="model" name="model" value={model} onChange={(event) => setModel(event.target.value)} placeholder="Например, 5 Series" /></Field>
-                <Field label="Цена от" htmlFor="priceMin"><div className="input-suffix"><input id="priceMin" name="priceMin" inputMode="numeric" placeholder="10 000" /><span>€</span></div></Field>
-                <Field label="Цена до" htmlFor="priceMax"><div className="input-suffix"><input id="priceMax" name="priceMax" inputMode="numeric" placeholder="30 000" /><span>€</span></div></Field>
-                <Field label="Год от" htmlFor="yearMin"><input id="yearMin" name="yearMin" inputMode="numeric" placeholder="2018" /></Field>
-                <Field label="Пробег до" htmlFor="mileageMax"><div className="input-suffix"><input id="mileageMax" name="mileageMax" inputMode="numeric" placeholder="180 000" /><span>км</span></div></Field>
-                <Field label="Топливо" htmlFor="fuel"><div className="select-wrap"><select id="fuel" name="fuel" defaultValue=""><option value="">Любое</option><option>Дизель</option><option>Бензин</option><option>Гибрид</option><option>Электро</option></select><ChevronDown size={18} /></div></Field>
-                <Field label="Коробка передач" htmlFor="gearbox"><div className="select-wrap"><select id="gearbox" name="gearbox" defaultValue=""><option value="">Любая</option><option>Автомат</option><option>Механика</option></select><ChevronDown size={18} /></div></Field>
+                <Field label="Цена от" htmlFor="priceMin"><div className="input-suffix"><input id="priceMin" name="priceMin" inputMode="numeric" value={filters.priceMin ?? ""} onChange={(event) => setNumberFilter("priceMin", event.target.value)} placeholder="10 000" /><span>€</span></div></Field>
+                <Field label="Цена до" htmlFor="priceMax"><div className="input-suffix"><input id="priceMax" name="priceMax" inputMode="numeric" value={filters.priceMax ?? ""} onChange={(event) => setNumberFilter("priceMax", event.target.value)} placeholder="30 000" /><span>€</span></div></Field>
+                <Field label="Год от" htmlFor="yearMin"><input id="yearMin" name="yearMin" inputMode="numeric" value={filters.yearMin ?? ""} onChange={(event) => setNumberFilter("yearMin", event.target.value)} placeholder="2018" /></Field>
+                <Field label="Пробег до" htmlFor="mileageMax"><div className="input-suffix"><input id="mileageMax" name="mileageMax" inputMode="numeric" value={filters.mileageMax ?? ""} onChange={(event) => setNumberFilter("mileageMax", event.target.value)} placeholder="180 000" /><span>км</span></div></Field>
+                <Field label="Топливо" htmlFor="fuel"><div className="select-wrap"><select id="fuel" name="fuel" value={filters.fuel ?? ""} onChange={(event) => setFilters((current) => ({ ...current, fuel: event.target.value || undefined }))}><option value="">Любое</option><option>Дизель</option><option>Бензин</option><option>Гибрид</option><option>Электро</option></select><ChevronDown size={18} /></div></Field>
+                <Field label="Коробка передач" htmlFor="gearbox"><div className="select-wrap"><select id="gearbox" name="gearbox" value={filters.transmission ?? ""} onChange={(event) => setFilters((current) => ({ ...current, transmission: event.target.value || undefined }))}><option value="">Любая</option><option>Автомат</option><option>Механика</option></select><ChevronDown size={18} /></div></Field>
               </div>
               <button className="advanced-link" type="button"><Plus size={17} /> Добавить кузов, мощность и город</button>
             </div>

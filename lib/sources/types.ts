@@ -3,6 +3,8 @@ export type NormalizedListing = {
   source: string;
   url: string;
   title: string;
+  make: string | null;
+  model: string | null;
   priceEur: number | null;
   year: number | null;
   mileageKm: number | null;
@@ -10,7 +12,7 @@ export type NormalizedListing = {
   transmission: string | null;
   location: string | null;
   imageUrl: string | null;
-  firstSeenAt: string;
+  raw: unknown;
 };
 
 export type RadarQuery = {
@@ -26,10 +28,13 @@ export type RadarQuery = {
   location?: string;
 };
 
+export type SourceConnectionMode = "scheduled_fetch" | "authorized_feed" | "official_notifications" | "not_connected";
+
 export interface MarketplaceAdapter {
   id: string;
   label: string;
   country: string;
+  connectionMode: SourceConnectionMode;
+  status: "scheduled" | "ready_for_authorized_data" | "not_connected";
   minimumIntervalMinutes: number;
-  search(query: RadarQuery): Promise<NormalizedListing[]>;
 }
