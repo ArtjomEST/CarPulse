@@ -147,14 +147,18 @@ function formatNumber(value: number) {
 
 function relativeTime(value?: string | null) {
   if (!value) return "совпадений пока нет";
-  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
-  const difference = Math.max(0, Date.now() - new Date(normalized).getTime());
+  const difference = Math.max(0, Date.now() - timestampMilliseconds(value));
   const minutes = Math.floor(difference / 60_000);
   if (minutes < 1) return "только что";
   if (minutes < 60) return `${minutes} мин. назад`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} ч. назад`;
   return `${Math.floor(hours / 24)} дн. назад`;
+}
+
+function timestampMilliseconds(value: string) {
+  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  return new Date(normalized).getTime();
 }
 
 export function CarPulseApp() {
@@ -178,7 +182,12 @@ export function CarPulseApp() {
 
   useEffect(() => {
     let active = true;
+    let refreshing = false;
+    let firstLoad = true;
+
     async function loadDashboard() {
+      if (refreshing) return;
+      refreshing = true;
       try {
         const response = await fetch("/api/dashboard");
         const payload = (await response.json()) as {
@@ -261,17 +270,27 @@ export function CarPulseApp() {
         );
         setTelegramConnected(Boolean(payload.telegram?.connected));
         const auto24Run = payload.sources?.Auto24?.lastRun;
+        const auto24CheckedAt =
+          auto24Run?.finished_at || auto24Run?.started_at || null;
+        const auto24CheckIsStale = Boolean(
+          auto24CheckedAt &&
+            Date.now() - timestampMilliseconds(auto24CheckedAt) > 50 * 60_000,
+        );
         setSourceStates({
           Auto24: auto24Run
             ? {
                 status:
-                  auto24Run.status === "success"
+                  auto24CheckIsStale
+                    ? "failed"
+                    : auto24Run.status === "success"
                     ? "success"
                     : auto24Run.status === "blocked"
                       ? "blocked"
                       : "failed",
                 label:
-                  auto24Run.status === "success"
+                  auto24CheckIsStale
+                    ? "Проверка просрочена"
+                    : auto24Run.status === "success"
                     ? "Работает"
                     : auto24Run.status === "blocked"
                       ? "Защита не пропустила"
@@ -280,8 +299,10 @@ export function CarPulseApp() {
                           )
                         ? "Сборщик не отвечает"
                       : "Ошибка проверки",
-                checkedAt: auto24Run.finished_at || auto24Run.started_at,
-                detail: auto24Run.error_message,
+                checkedAt: auto24CheckedAt,
+                detail: auto24CheckIsStale
+                  ? "Автоматическая проверка не запускалась больше 50 минут."
+                  : auto24Run.error_message,
               }
             : { status: "waiting", label: "Ожидает первой проверки" },
           "SS.lv": { status: "waiting", label: "Не подключена" },
@@ -289,16 +310,30 @@ export function CarPulseApp() {
           "mobile.de": { status: "waiting", label: "Не подключена" },
         });
       } catch (error) {
-        if (active) {
+        if (active && firstLoad) {
           setToast(error instanceof Error ? error.message : "Не удалось загрузить кабинет");
         }
       } finally {
-        if (active) setLoading(false);
+        refreshing = false;
+        if (active && firstLoad) setLoading(false);
+        firstLoad = false;
       }
     }
-    loadDashboard();
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadDashboard();
+    };
+
+    void loadDashboard();
+    const refreshInterval = window.setInterval(refreshWhenVisible, 30_000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
     return () => {
       active = false;
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, []);
 
