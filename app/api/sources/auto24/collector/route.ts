@@ -4,11 +4,13 @@ import {
   recordExternalAuto24Run,
   type ExtractedAuto24Record,
 } from "../../../../../lib/sources/collect-auto24";
+import { deliverPendingTelegramNotifications } from "../../../../../lib/telegram";
 
 type CollectorEnv = {
   DB: D1Database;
   AUTO24_COLLECTOR_SECRET?: string;
   AUTO24_SEARCH_URL?: string;
+  TELEGRAM_BOT_TOKEN?: string;
 };
 
 function runtimeEnv() {
@@ -77,6 +79,12 @@ export async function POST(request: Request) {
     records: payload.records,
     message: payload.message?.slice(0, 1000),
   });
+  if (result.status === "success") {
+    await deliverPendingTelegramNotifications(
+      collectorEnv.DB,
+      collectorEnv.TELEGRAM_BOT_TOKEN,
+    );
+  }
   return Response.json(result, {
     status: result.status === "success" ? 200 : result.status === "blocked" ? 409 : 502,
   });

@@ -1,8 +1,10 @@
 import { env } from "cloudflare:workers";
 import { collectAuto24, type Auto24CollectorEnv } from "../../../../../lib/sources/collect-auto24";
+import { deliverPendingTelegramNotifications } from "../../../../../lib/telegram";
 
 type SyncEnv = Auto24CollectorEnv & {
   AUTO24_SYNC_SECRET?: string;
+  TELEGRAM_BOT_TOKEN?: string;
 };
 
 function runtimeEnv() {
@@ -34,6 +36,12 @@ export async function POST(request: Request) {
   }
 
   const result = await collectAuto24(workerEnv);
+  if (result.status === "success") {
+    await deliverPendingTelegramNotifications(
+      workerEnv.DB,
+      workerEnv.TELEGRAM_BOT_TOKEN,
+    );
+  }
   return Response.json(result, {
     status: result.status === "failed" ? 502 : result.status === "blocked" ? 409 : 200,
   });

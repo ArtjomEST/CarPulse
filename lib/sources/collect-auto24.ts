@@ -18,6 +18,7 @@ export interface Auto24CollectorEnv {
 
 type ActiveRadar = {
   id: number;
+  user_id: number;
   user_email: string;
   sources: string;
   filter_json: string | null;
@@ -123,11 +124,22 @@ export async function ingestAuto24Records(
             `INSERT OR IGNORE INTO notification_deliveries (match_id, channel, status)
              SELECT ?, 'telegram', 'pending'
              WHERE EXISTS (
-               SELECT 1 FROM telegram_connections
-               WHERE user_email = ? AND connected = 1 AND chat_id IS NOT NULL
+               SELECT 1 FROM telegram_accounts
+               WHERE user_id = ? AND connected = 1 AND chat_id IS NOT NULL
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM notification_deliveries existing_delivery
+               INNER JOIN radar_matches existing_match
+                 ON existing_match.id = existing_delivery.match_id
+               INNER JOIN radars existing_radar
+                 ON existing_radar.id = existing_match.radar_id
+               WHERE existing_delivery.channel = 'telegram'
+                 AND existing_match.listing_id = ?
+                 AND existing_radar.user_id = ?
              )`,
           )
-          .bind(matchId, radar.user_email)
+          .bind(matchId, radar.user_id, stored.id, radar.user_id)
           .run();
       }
     }
@@ -289,7 +301,7 @@ async function fetchAuto24WithBrowser(
     const makeOptions = JSON.parse(makeOptionsJson) as Array<{ value: string; label: string }>;
     const groupedSearches = new Map<string, number[]>();
 
-    for (const radar of radars.slice(0, 10)) {
+    for (const radar of radars) {
       const radarUrl = buildAuto24SearchUrl(url, radar.filters, makeOptions);
       if (!radarUrl) continue;
       const key = radarUrl.toString();
@@ -326,10 +338,10 @@ async function fetchAuto24WithBrowser(
 async function loadActiveAuto24Radars(database: D1Database) {
   const radarResult = await database
     .prepare(
-      `SELECT r.id, r.user_email, r.sources, f.filter_json
+      `SELECT r.id, r.user_id, r.user_email, r.sources, f.filter_json
        FROM radars r
        LEFT JOIN radar_filters f ON f.radar_id = r.id
-       WHERE r.enabled = 1`,
+       WHERE r.enabled = 1 AND r.user_id IS NOT NULL`,
     )
     .all<ActiveRadar>();
   return radarResult.results

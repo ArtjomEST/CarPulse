@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { CarPulseApp } from "./CarPulseApp";
+import { CarPulseRoot } from "./CarPulseRoot";
 
 export const metadata: Metadata = {
   title: "CarPulse — свежие автомобили раньше других",
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function Home() {
-  return <CarPulseApp />;
+  return <CarPulseRoot />;
 }

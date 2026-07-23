@@ -1,8 +1,13 @@
 import { env } from "cloudflare:workers";
 import { ensureSchema } from "../../../db/ensure-schema";
+import {
+  authErrorResponse,
+  AuthError,
+  requireSameOrigin,
+  requireUser,
+} from "../../../lib/auth";
 import type { RadarQuery } from "../../../lib/sources/types";
 
-const DEMO_EMAIL = "demo@carpulse.local";
 const ALLOWED_SOURCES = new Set(["Auto24", "SS.lv", "Nettiauto", "mobile.de"]);
 
 type RadarRow = {
@@ -38,10 +43,6 @@ type ListingRow = {
   radar_name: string;
 };
 
-function userEmail(request: Request) {
-  return request.headers.get("oai-authenticated-user-email") ?? DEMO_EMAIL;
-}
-
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Неизвестная ошибка";
   if (message.includes("no such table")) {
@@ -53,12 +54,12 @@ function errorMessage(error: unknown) {
 export async function GET(request: Request) {
   try {
     await ensureSchema();
-    const email = userEmail(request);
+    const user = await requireUser(env.DB, request);
     const collectorMode =
       (env as unknown as { AUTO24_MODE?: string }).AUTO24_MODE === "external"
         ? "external"
         : "browser";
-    const [radarResult, listingResult, telegram, auto24Run] = await Promise.all([
+    const [radarResult, listingResult, telegram, auto24Run, favoriteResult] = await Promise.all([
       env.DB.prepare(
         `SELECT r.id, r.name, r.query, r.sources, r.enabled, r.created_at,
                 f.filter_json,
@@ -67,11 +68,11 @@ export async function GET(request: Request) {
          FROM radars r
          LEFT JOIN radar_filters f ON f.radar_id = r.id
          LEFT JOIN radar_matches rm ON rm.radar_id = r.id
-         WHERE r.user_email = ?
+         WHERE r.user_id = ?
          GROUP BY r.id
          ORDER BY r.id DESC`,
       )
-        .bind(email)
+        .bind(user.id)
         .all<RadarRow>(),
       env.DB.prepare(
         `SELECT l.id, r.id AS radar_id, l.external_id, l.url, l.title, l.make, l.model,
@@ -81,17 +82,18 @@ export async function GET(request: Request) {
          FROM radar_matches rm
          INNER JOIN listings l ON l.id = rm.listing_id
          INNER JOIN radars r ON r.id = rm.radar_id
-         WHERE r.user_email = ?
+         WHERE r.user_id = ?
          ORDER BY rm.matched_at DESC
          LIMIT 500`,
       )
-        .bind(email)
+        .bind(user.id)
         .all<ListingRow>(),
       env.DB.prepare(
-        `SELECT user_email, chat_id, connect_code, connected, updated_at
-         FROM telegram_connections WHERE user_email = ?`,
+        `SELECT chat_id, telegram_username, telegram_first_name, connected,
+                connected_at, code_expires_at, updated_at
+         FROM telegram_accounts WHERE user_id = ?`,
       )
-        .bind(email)
+        .bind(user.id)
         .first(),
       env.DB.prepare(
         `SELECT id, status, received_count, new_listing_count, new_match_count,
@@ -99,6 +101,11 @@ export async function GET(request: Request) {
          FROM source_runs WHERE source = 'Auto24'
          ORDER BY id DESC LIMIT 1`,
       ).first(),
+      env.DB.prepare(
+        "SELECT listing_id FROM user_favorites WHERE user_id = ? ORDER BY id DESC",
+      )
+        .bind(user.id)
+        .all<{ listing_id: number }>(),
     ]);
 
     const groupedListings = new Map<
@@ -162,6 +169,7 @@ export async function GET(request: Request) {
         };
       }),
       telegram,
+      favorites: favoriteResult.results.map((favorite) => favorite.listing_id),
       sources: {
         Auto24: {
           intervalMinutes: 30,
@@ -174,14 +182,16 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof AuthError) return authErrorResponse(error);
     return Response.json({ error: errorMessage(error) }, { status: 503 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    requireSameOrigin(request);
     await ensureSchema();
-    const email = userEmail(request);
+    const user = await requireUser(env.DB, request);
     const payload = (await request.json()) as {
       action?: string;
       radar?: {
@@ -194,13 +204,14 @@ export async function POST(request: Request) {
       };
       id?: number;
       enabled?: boolean;
+      listingId?: number;
     };
 
     if (payload.action === "create_radar") {
       const name = payload.radar?.name?.trim();
       if (!name) return Response.json({ error: "Укажите название радара" }, { status: 400 });
-      const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM radars WHERE user_email = ?")
-        .bind(email)
+      const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM radars WHERE user_id = ?")
+        .bind(user.id)
         .first<{ count: number }>();
       if (Number(count?.count || 0) >= 10) {
         return Response.json({ error: "Для MVP доступно не больше 10 радаров" }, { status: 409 });
@@ -211,11 +222,13 @@ export async function POST(request: Request) {
         .slice(0, 4);
       const filters = normalizeFilters(payload.radar?.filters);
       const created = await env.DB.prepare(
-        `INSERT INTO radars (user_email, name, query, sources, enabled)
-         VALUES (?, ?, ?, ?, ?) RETURNING id, name, query, sources, enabled, created_at`,
+        `INSERT INTO radars (user_id, user_email, name, query, sources, enabled)
+         VALUES (?, ?, ?, ?, ?, ?)
+         RETURNING id, name, query, sources, enabled, created_at`,
       )
         .bind(
-          email,
+          user.id,
+          user.email,
           name,
           payload.radar?.query?.trim() || describeFilters(filters),
           JSON.stringify(sources.length ? sources : ["Auto24"]),
@@ -261,10 +274,10 @@ export async function POST(request: Request) {
         return Response.json({ error: "Некорректный ID радара" }, { status: 400 });
       }
       const updated = await env.DB.prepare(
-        `UPDATE radars SET enabled = ? WHERE id = ? AND user_email = ?
+        `UPDATE radars SET enabled = ? WHERE id = ? AND user_id = ?
          RETURNING id, enabled`,
       )
-        .bind(payload.enabled ? 1 : 0, id, email)
+        .bind(payload.enabled ? 1 : 0, id, user.id)
         .first<{ id: number; enabled: number }>();
       if (!updated) return Response.json({ error: "Радар не найден" }, { status: 404 });
       return Response.json({ id: updated.id, enabled: Boolean(updated.enabled) });
@@ -280,9 +293,9 @@ export async function POST(request: Request) {
         return Response.json({ error: "Укажите название радара" }, { status: 400 });
       }
       const owned = await env.DB.prepare(
-        "SELECT id FROM radars WHERE id = ? AND user_email = ?",
+        "SELECT id FROM radars WHERE id = ? AND user_id = ?",
       )
-        .bind(id, email)
+        .bind(id, user.id)
         .first<{ id: number }>();
       if (!owned) return Response.json({ error: "Радар не найден" }, { status: 404 });
 
@@ -297,14 +310,14 @@ export async function POST(request: Request) {
         env.DB.prepare(
           `UPDATE radars
            SET name = ?, query = ?, sources = ?, enabled = ?
-           WHERE id = ? AND user_email = ?`,
+           WHERE id = ? AND user_id = ?`,
         ).bind(
           name,
           query,
           JSON.stringify(sources.length ? sources : ["Auto24"]),
           enabled,
           id,
-          email,
+          user.id,
         ),
         env.DB.prepare(
           `INSERT INTO radar_filters (radar_id, filter_json, updated_at)
@@ -334,32 +347,62 @@ export async function POST(request: Request) {
       }
       const deleted = await env.DB.prepare(
         `DELETE FROM radars
-         WHERE id = ? AND user_email = ?
+         WHERE id = ? AND user_id = ?
          RETURNING id`,
       )
-        .bind(id, email)
+        .bind(id, user.id)
         .first<{ id: number }>();
       if (!deleted) return Response.json({ error: "Радар не найден" }, { status: 404 });
       return Response.json({ id: deleted.id, deleted: true });
     }
 
-    if (payload.action === "telegram_code") {
-      const connectCode = `CP-${Math.floor(1000 + Math.random() * 9000)}`;
-      await env.DB.prepare(
-        `INSERT INTO telegram_connections (user_email, connect_code, connected)
-         VALUES (?, ?, 0)
-         ON CONFLICT(user_email) DO UPDATE SET
-           connect_code = excluded.connect_code,
-           connected = 0,
-           updated_at = CURRENT_TIMESTAMP`,
-      )
-        .bind(email, connectCode)
+    if (payload.action === "toggle_favorite") {
+      const listingId = Number(payload.listingId);
+      if (!Number.isInteger(listingId) || listingId <= 0) {
+        return Response.json({ error: "Некорректное объявление" }, { status: 400 });
+      }
+      const ownedListing = await env.DB
+        .prepare(
+          `SELECT l.id, l.external_id, l.source
+           FROM listings l
+           WHERE l.id = ? AND EXISTS (
+             SELECT 1
+             FROM radar_matches rm
+             INNER JOIN radars r ON r.id = rm.radar_id
+             WHERE rm.listing_id = l.id AND r.user_id = ?
+           )`,
+        )
+        .bind(listingId, user.id)
+        .first<{ id: number; external_id: string; source: string }>();
+      if (!ownedListing) {
+        return Response.json({ error: "Объявление не найдено в ваших радарах" }, { status: 404 });
+      }
+      const existing = await env.DB
+        .prepare(
+          "SELECT id FROM user_favorites WHERE user_id = ? AND listing_id = ?",
+        )
+        .bind(user.id, listingId)
+        .first<{ id: number }>();
+      if (existing) {
+        await env.DB
+          .prepare("DELETE FROM user_favorites WHERE id = ? AND user_id = ?")
+          .bind(existing.id, user.id)
+          .run();
+        return Response.json({ listingId, favorite: false });
+      }
+      await env.DB
+        .prepare(
+          `INSERT OR IGNORE INTO user_favorites (user_id, listing_id)
+           VALUES (?, ?)`,
+        )
+        .bind(user.id, listingId)
         .run();
-      return Response.json({ connectCode });
+      return Response.json({ listingId, favorite: true });
     }
 
     return Response.json({ error: "Неизвестное действие" }, { status: 400 });
   } catch (error) {
+    if (error instanceof AuthError) return authErrorResponse(error);
     return Response.json({ error: errorMessage(error) }, { status: 503 });
   }
 }

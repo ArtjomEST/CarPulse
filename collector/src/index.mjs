@@ -135,7 +135,7 @@ async function collectOnce() {
     );
 
     const groupedSearches = new Map();
-    for (const radar of configuration.radars.slice(0, 10)) {
+    for (const radar of configuration.radars) {
       const radarUrl = buildAuto24SearchUrl(
         baseSearchUrl,
         radar.filters || {},

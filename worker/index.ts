@@ -5,6 +5,7 @@ import {
   collectAuto24,
   monitorExternalAuto24Collector,
 } from "../lib/sources/collect-auto24";
+import { deliverPendingTelegramNotifications } from "../lib/telegram";
 
 interface Env {
   ASSETS: Fetcher;
@@ -12,6 +13,7 @@ interface Env {
   BROWSER: Fetcher;
   AUTO24_MODE?: string;
   AUTO24_SEARCH_URL?: string;
+  TELEGRAM_BOT_TOKEN?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -53,15 +55,25 @@ const worker = {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     if (env.AUTO24_MODE === "external") {
       ctx.waitUntil(
-        monitorExternalAuto24Collector(env.DB).then((result) => {
+        monitorExternalAuto24Collector(env.DB).then(async (result) => {
           console.log("Auto24 external collector monitor", JSON.stringify(result));
+          const delivery = await deliverPendingTelegramNotifications(
+            env.DB,
+            env.TELEGRAM_BOT_TOKEN,
+          );
+          console.log("Telegram delivery run", JSON.stringify(delivery));
         }),
       );
       return;
     }
     ctx.waitUntil(
-      collectAuto24(env).then((result) => {
+      collectAuto24(env).then(async (result) => {
         console.log("Auto24 scheduled run", JSON.stringify(result));
+        const delivery = await deliverPendingTelegramNotifications(
+          env.DB,
+          env.TELEGRAM_BOT_TOKEN,
+        );
+        console.log("Telegram delivery run", JSON.stringify(delivery));
       }),
     );
   },

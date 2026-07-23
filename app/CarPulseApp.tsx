@@ -13,6 +13,7 @@ import {
   Gauge,
   Heart,
   LayoutDashboard,
+  LogOut,
   MapPin,
   Menu,
   MessageCircle,
@@ -24,12 +25,25 @@ import {
   Settings,
   SlidersHorizontal,
   Trash2,
+  UsersRound,
   X,
 } from "lucide-react";
 import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { AdminUsersView } from "./AdminUsersView";
+import type { CurrentUser } from "./CarPulseRoot";
+import {
+  AccountSecurityPanel,
+  TelegramSettingsPanel,
+} from "./SettingsPanels";
 
-type View = "overview" | "radars" | "vehicles" | "favorites" | "settings";
+type View =
+  | "overview"
+  | "radars"
+  | "vehicles"
+  | "favorites"
+  | "settings"
+  | "users";
 
 type Listing = {
   id: number;
@@ -112,6 +126,7 @@ const navigation = [
   { id: "vehicles" as const, label: "Автомобили", icon: CarFront },
   { id: "favorites" as const, label: "Избранное", icon: Bookmark },
   { id: "settings" as const, label: "Настройки", icon: Settings },
+  { id: "users" as const, label: "Пользователи", icon: UsersRound },
 ];
 
 const viewCopy: Record<View, { title: string; description: string }> = {
@@ -135,6 +150,10 @@ const viewCopy: Record<View, { title: string; description: string }> = {
     title: "Настройки",
     description: "Уведомления, площадки и параметры аккаунта.",
   },
+  users: {
+    title: "Пользователи",
+    description: "Аккаунты, роли, доступ и принадлежащие пользователям данные.",
+  },
 };
 
 function formatPrice(price: number) {
@@ -143,6 +162,14 @@ function formatPrice(price: number) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("ru-RU").format(value);
+}
+
+function userInitials(name: string) {
+  return name
+    .split(/\s+/u)
+    .slice(0, 2)
+    .map((part) => part[0]?.toLocaleUpperCase("ru"))
+    .join("");
 }
 
 function radarLabel(radars: Listing["radars"]) {
@@ -172,7 +199,15 @@ function timestampMilliseconds(value: string) {
   return new Date(normalized).getTime();
 }
 
-export function CarPulseApp() {
+export function CarPulseApp({
+  user,
+  onLogout,
+  onSessionExpired,
+}: {
+  user: CurrentUser;
+  onLogout: () => void | Promise<void>;
+  onSessionExpired: () => void;
+}) {
   const [view, setView] = useState<View>("overview");
   const [radars, setRadars] = useState<Radar[]>([]);
   const [listings, setListings] = useState<Listing[]>([]);
@@ -232,6 +267,7 @@ export function CarPulseApp() {
             powerKw: number | null;
           }>;
           telegram?: { connected?: number | boolean } | null;
+          favorites?: number[];
           sources?: Record<
             string,
             {
@@ -245,6 +281,10 @@ export function CarPulseApp() {
             }
           >;
         };
+        if (response.status === 401) {
+          onSessionExpired();
+          return;
+        }
         if (!response.ok) throw new Error(payload.error || "Не удалось загрузить данные");
         if (!active) return;
         setRadars(
@@ -285,6 +325,7 @@ export function CarPulseApp() {
             };
           }),
         );
+        setFavorites(payload.favorites || []);
         setTelegramConnected(Boolean(payload.telegram?.connected));
         const auto24Run = payload.sources?.Auto24?.lastRun;
         const auto24CheckedAt =
@@ -352,7 +393,7 @@ export function CarPulseApp() {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, []);
+  }, [onSessionExpired]);
 
   useEffect(() => {
     if (!toast) return;
@@ -391,12 +432,35 @@ export function CarPulseApp() {
     setEditingRadar(null);
   }
 
-  function toggleFavorite(id: number) {
+  async function toggleFavorite(id: number) {
+    const wasFavorite = favorites.includes(id);
     setFavorites((current) =>
       current.includes(id)
         ? current.filter((listingId) => listingId !== id)
         : [...current, id],
     );
+    try {
+      const response = await fetch("/api/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_favorite", listingId: id }),
+      });
+      if (response.status === 401) {
+        onSessionExpired();
+        return;
+      }
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Не удалось изменить избранное");
+    } catch (error) {
+      setFavorites((current) =>
+        wasFavorite
+          ? [...new Set([...current, id])]
+          : current.filter((listingId) => listingId !== id),
+      );
+      setToast(
+        error instanceof Error ? error.message : "Не удалось изменить избранное",
+      );
+    }
   }
 
   async function toggleRadar(id: number) {
@@ -585,7 +649,9 @@ export function CarPulseApp() {
         </div>
 
         <nav className="main-nav" aria-label="Основная навигация">
-          {navigation.map((item) => {
+          {navigation
+            .filter((item) => item.id !== "users" || user.role === "admin")
+            .map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -599,16 +665,24 @@ export function CarPulseApp() {
                 {item.id === "radars" && <span className="nav-count">{radars.length}</span>}
               </button>
             );
-          })}
+            })}
         </nav>
 
         <div className="sidebar-profile">
-          <span className="avatar">АК</span>
+          <span className="avatar">{userInitials(user.name)}</span>
           <span className="profile-copy">
-            <strong>Артём К.</strong>
-            <small>Тестовый аккаунт</small>
+            <strong>{user.name}</strong>
+            <small>{user.role === "admin" ? "Администратор" : user.email}</small>
           </span>
-          <MoreHorizontal size={19} />
+          <button
+            className="profile-logout"
+            type="button"
+            onClick={() => void onLogout()}
+            aria-label="Выйти из аккаунта"
+            title="Выйти"
+          >
+            <LogOut size={18} />
+          </button>
         </div>
       </aside>
 
@@ -664,6 +738,7 @@ export function CarPulseApp() {
               onCreate={openCreateRadar}
               onViewRadars={() => changeView("radars")}
               onShowAll={() => changeView("vehicles")}
+              onOpenTelegram={() => changeView("settings")}
               loading={loading}
               sourceStates={sourceStates}
             />
@@ -693,15 +768,16 @@ export function CarPulseApp() {
 
           {view === "settings" && (
             <SettingsView
-              connected={telegramConnected}
-              onConnect={() => {
-                setTelegramConnected(true);
-                setToast("Telegram подключён. Тестовое уведомление отправлено.");
-              }}
-              onDisconnect={() => {
-                setTelegramConnected(false);
-                setToast("Telegram отключён.");
-              }}
+              user={user}
+              onConnectionChange={setTelegramConnected}
+              onSessionExpired={onSessionExpired}
+            />
+          )}
+
+          {view === "users" && user.role === "admin" && (
+            <AdminUsersView
+              currentUserId={user.id}
+              onSessionExpired={onSessionExpired}
             />
           )}
         </div>
@@ -734,6 +810,7 @@ function Overview({
   onCreate,
   onViewRadars,
   onShowAll,
+  onOpenTelegram,
   loading,
   sourceStates,
 }: {
@@ -746,6 +823,7 @@ function Overview({
   onCreate: () => void;
   onViewRadars: () => void;
   onShowAll: () => void;
+  onOpenTelegram: () => void;
   loading: boolean;
   sourceStates: Record<string, SourceState>;
 }) {
@@ -833,7 +911,7 @@ function Overview({
               <h3>Узнавайте о машинах сразу</h3>
               <p>Подключите Telegram — ссылка придёт, как только радар найдёт объявление.</p>
             </div>
-            <button type="button">Подключить Telegram</button>
+            <button type="button" onClick={onOpenTelegram}>Подключить Telegram</button>
           </section>
 
           <section className="sources-card">
@@ -960,7 +1038,7 @@ function RadarsView({
               </div>
             </div>
             <div className="radar-card-side">
-              <div><strong>{radar.matches}</strong><small>новых сегодня</small></div>
+              <div><strong>{radar.matches}</strong><small>совпадений всего</small></div>
               <span>{radar.lastSeen}</span>
               <label className="switch">
                 <input type="checkbox" checked={radar.enabled} onChange={() => onToggle(radar.id)} aria-label={`${radar.enabled ? "Остановить" : "Запустить"} радар ${radar.name}`} />
@@ -1052,29 +1130,22 @@ function RadarsView({
   );
 }
 
-function SettingsView({ connected, onConnect, onDisconnect }: { connected: boolean; onConnect: () => void; onDisconnect: () => void }) {
+function SettingsView({
+  user,
+  onConnectionChange,
+  onSessionExpired,
+}: {
+  user: CurrentUser;
+  onConnectionChange: (connected: boolean) => void;
+  onSessionExpired: () => void;
+}) {
   return (
     <div className="settings-grid">
-      <section className="settings-card telegram-settings">
-        <div className="settings-card-heading">
-          <span className="settings-icon"><MessageCircle size={23} /></span>
-          <div><h2>Уведомления в Telegram</h2><p>Получайте новые объявления сразу после обнаружения.</p></div>
-        </div>
-        {connected ? (
-          <div className="connected-state">
-            <span className="connected-check"><Check size={22} /></span>
-            <div><strong>Telegram подключён</strong><p>Уведомления отправляются в чат @artjom_cars</p></div>
-            <button className="danger-text-button" type="button" onClick={onDisconnect}>Отключить</button>
-          </div>
-        ) : (
-          <div className="connect-flow">
-            <div className="connect-step"><span>1</span><p>Откройте бота <strong>@CarPulseBot</strong> в Telegram</p></div>
-            <div className="connect-step"><span>2</span><p>Отправьте ему одноразовый код</p></div>
-            <div className="connection-code"><code>CP-4829</code><button type="button" onClick={onConnect}>Открыть Telegram</button></div>
-            <p className="code-note">Код действует 15 минут. Для демо кнопка сразу подтверждает подключение.</p>
-          </div>
-        )}
-      </section>
+      <TelegramSettingsPanel
+        user={user}
+        onConnectionChange={onConnectionChange}
+        onSessionExpired={onSessionExpired}
+      />
 
       <section className="settings-card">
         <div className="settings-card-heading">
@@ -1085,6 +1156,11 @@ function SettingsView({ connected, onConnect, onDisconnect }: { connected: boole
         <div className="select-wrap"><select id="frequency" defaultValue="30" disabled><option value="30">Каждые 30 минут</option></select><ChevronDown size={18} /></div>
         <p className="setting-hint">В MVP интервал зафиксирован, чтобы не создавать лишнюю нагрузку на Auto24.</p>
       </section>
+
+      <AccountSecurityPanel
+        user={user}
+        onSessionExpired={onSessionExpired}
+      />
 
       <section className="settings-card settings-wide">
         <div className="settings-card-heading">
